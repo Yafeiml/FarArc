@@ -1,0 +1,54 @@
+name: Fetch official 1Remote 1.2.1
+
+on:
+  push:
+    branches:
+      - "fix/win11-25h2-taskbar-registration"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fetch-official-1remote-121-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fetch-and-verify:
+    runs-on: windows-latest
+    steps:
+      - name: Download official 1Remote 1.2.1 release asset
+        shell: pwsh
+        run: |
+          $url = "https://github.com/1Remote/1Remote/releases/download/1.2.1/1Remote-1.2.1-net9-x64.zip"
+          $zip = Join-Path $env:RUNNER_TEMP "1Remote-1.2.1-net9-x64.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+          if (-not (Test-Path $zip)) { throw "Official release download failed." }
+          $size = (Get-Item $zip).Length
+          if ($size -lt 1MB) { throw "Downloaded file is unexpectedly small: $size bytes" }
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "OFFICIAL_ZIP=$zip" >> $env:GITHUB_ENV
+          "OFFICIAL_SHA256=$hash" >> $env:GITHUB_ENV
+          Write-Host "Official asset size: $size bytes"
+          Write-Host "Official asset SHA256: $hash"
+
+      - name: Verify ZIP and inspect top-level contents
+        shell: pwsh
+        run: |
+          $extract = Join-Path $env:RUNNER_TEMP "official-1Remote-1.2.1"
+          Expand-Archive -Path $env:OFFICIAL_ZIP -DestinationPath $extract -Force
+          $files = Get-ChildItem -Path $extract -Recurse -File
+          if ($files.Count -eq 0) { throw "Official release ZIP contains no files." }
+          $exe = $files | Where-Object { $_.Name -ieq "1Remote.exe" } | Select-Object -First 1
+          if ($null -eq $exe) { throw "1Remote.exe was not found in the official release ZIP." }
+          Write-Host "Official executable: $($exe.FullName)"
+          Write-Host "Official executable size: $($exe.Length) bytes"
+          Get-ChildItem -Path $extract | Select-Object Name, Length, Mode | Format-Table -AutoSize
+
+      - name: Upload verified official asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-1Remote-1.2.1-net9-x64
+          path: ${{ env.OFFICIAL_ZIP }}
+          if-no-files-found: error
+          retention-days: 7
