@@ -15,14 +15,12 @@ namespace _1RM.View.Host
     /// Narrow compatibility guard for the Windows 11 25H2 + StartAllBack failure
     /// captured in TaskbarDiagnostics.
     ///
-    /// The failing sequence is:
-    ///   active maximized window -> WA_INACTIVE while the cursor is over
-    ///   MSTaskListWClass -> immediate WA_ACTIVE -> no SC_MINIMIZE follows.
+    /// The guard compensates only for this sequence:
+    ///   active maximized window -> WA_INACTIVE over the taskbar -> immediate
+    ///   WA_ACTIVE -> no native SC_MINIMIZE follows.
     ///
-    /// Normal taskbar clicks deliver SC_MINIMIZE within roughly 40-60 ms. This guard
-    /// waits 220 ms and minimizes only when the exact failed sequence remains true.
     /// It never calls ITaskbarList, ActivateTab, SetForegroundWindow, ShowInTaskbar,
-    /// changes window styles/owners, or marks a Win32 message handled.
+    /// changes window styles/owners, or consumes a native message.
     /// </summary>
     public partial class TabWindowView
     {
@@ -44,6 +42,8 @@ namespace _1RM.View.Host
         private IntPtr _taskbarGuardHwnd = IntPtr.Zero;
         private bool _taskbarGuardCandidateArmed;
         private bool _taskbarGuardReactivated;
+        private bool _taskbarGuardDisabled;
+        private int _taskbarGuardFaultLogged;
         private DateTime _taskbarGuardCandidateStartedUtc = DateTime.MinValue;
         private long _taskbarGuardCandidateId;
         private string _taskbarGuardChildClass = string.Empty;
@@ -55,19 +55,39 @@ namespace _1RM.View.Host
             base.OnSourceInitialized(e);
 
             _taskbarGuardHwnd = new WindowInteropHelper(this).Handle;
-            _taskbarGuardHwndSource = HwndSource.FromHwnd(_taskbarGuardHwnd);
-            _taskbarGuardHwndSource?.AddHook(TaskbarMinimizeGuardWndProc);
-
-            _taskbarGuardTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
-            {
-                Interval = TimeSpan.FromMilliseconds(GuardDelayMilliseconds),
-            };
-            _taskbarGuardTimer.Tick += TaskbarMinimizeGuardTimerOnTick;
-
-            Closed += TaskbarMinimizeGuardOnClosed;
-
             InitializeTaskbarGuardLog();
-            TaskbarGuardLog("INIT", "missed-minimize guard attached");
+
+            // Validate every native helper before a HwndSource hook is installed.
+            // If anything is unavailable, the guard stays disabled and 1Remote keeps
+            // running normally instead of allowing an exception to escape WndProc.
+            if (!TaskbarGuardNativePreflight(out Exception? preflightError))
+            {
+                _taskbarGuardDisabled = true;
+                TaskbarGuardEmergencyLog(
+                    "DISABLED",
+                    "native preflight failed",
+                    preflightError);
+                return;
+            }
+
+            try
+            {
+                _taskbarGuardHwndSource = HwndSource.FromHwnd(_taskbarGuardHwnd);
+                _taskbarGuardHwndSource?.AddHook(TaskbarMinimizeGuardWndProc);
+
+                _taskbarGuardTimer = new DispatcherTimer(DispatcherPriority.Background, Dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(GuardDelayMilliseconds),
+                };
+                _taskbarGuardTimer.Tick += TaskbarMinimizeGuardTimerOnTick;
+
+                Closed += TaskbarMinimizeGuardOnClosed;
+                TaskbarGuardLog("INIT", "missed-minimize guard attached");
+            }
+            catch (Exception ex)
+            {
+                DisableTaskbarMinimizeGuard("initialization failed", ex);
+            }
         }
 
         private IntPtr TaskbarMinimizeGuardWndProc(
@@ -77,52 +97,67 @@ namespace _1RM.View.Host
             IntPtr lParam,
             ref bool handled)
         {
-            switch (msg)
+            if (_taskbarGuardDisabled)
             {
-                case GuardWmActivate:
+                return IntPtr.Zero;
+            }
+
+            // An exception must never escape an HwndSource hook. The previous test
+            // build did exactly that and the application's global exception handler
+            // opened one error window per repeated activation message.
+            try
+            {
+                switch (msg)
                 {
-                    int state = GuardLowWord(wParam);
-                    bool minimized = GuardHighWord(wParam) != 0;
-
-                    if (state == GuardWaInactive)
+                    case GuardWmActivate:
                     {
-                        TryArmTaskbarMinimizeGuard(hwnd, minimized, lParam);
-                    }
-                    else if ((state == GuardWaActive || state == GuardWaClickActive) &&
-                             _taskbarGuardCandidateArmed &&
-                             !minimized &&
-                             !GuardIsIconic(hwnd))
-                    {
-                        _taskbarGuardReactivated = true;
-                        TaskbarGuardLog(
-                            "REACTIVATED",
-                            $"candidate={_taskbarGuardCandidateId}; other=0x{lParam.ToInt64():X}");
+                        int state = GuardLowWord(wParam);
+                        bool minimized = GuardHighWord(wParam) != 0;
+
+                        if (state == GuardWaInactive)
+                        {
+                            TryArmTaskbarMinimizeGuard(hwnd, minimized, lParam);
+                        }
+                        else if ((state == GuardWaActive || state == GuardWaClickActive) &&
+                                 _taskbarGuardCandidateArmed &&
+                                 !minimized &&
+                                 !GuardIsIconic(hwnd))
+                        {
+                            _taskbarGuardReactivated = true;
+                            TaskbarGuardLog(
+                                "REACTIVATED",
+                                $"candidate={_taskbarGuardCandidateId}; other=0x{lParam.ToInt64():X}");
+                        }
+
+                        break;
                     }
 
-                    break;
+                    case GuardWmSysCommand:
+                    {
+                        int command = unchecked((int)(wParam.ToInt64() & 0xFFF0L));
+                        if (command == GuardScMinimize)
+                        {
+                            CancelTaskbarMinimizeGuard("native SC_MINIMIZE received", logCancellation: true);
+                        }
+
+                        break;
+                    }
+
+                    case GuardWmSize:
+                    {
+                        int sizeType = unchecked((int)wParam.ToInt64());
+                        if (sizeType == GuardSizeMinimized)
+                        {
+                            CancelTaskbarMinimizeGuard("native SIZE_MINIMIZED received", logCancellation: false);
+                        }
+
+                        break;
+                    }
                 }
-
-                case GuardWmSysCommand:
-                {
-                    int command = unchecked((int)(wParam.ToInt64() & 0xFFF0L));
-                    if (command == GuardScMinimize)
-                    {
-                        CancelTaskbarMinimizeGuard("native SC_MINIMIZE received", logCancellation: true);
-                    }
-
-                    break;
-                }
-
-                case GuardWmSize:
-                {
-                    int sizeType = unchecked((int)wParam.ToInt64());
-                    if (sizeType == GuardSizeMinimized)
-                    {
-                        CancelTaskbarMinimizeGuard("native SIZE_MINIMIZED received", logCancellation: false);
-                    }
-
-                    break;
-                }
+            }
+            catch (Exception ex)
+            {
+                DisableTaskbarMinimizeGuard($"WndProc failed; msg=0x{msg:X4}", ex);
             }
 
             // Observation/compensation only. Never consume a native message.
@@ -131,7 +166,8 @@ namespace _1RM.View.Host
 
         private void TryArmTaskbarMinimizeGuard(IntPtr hwnd, bool minimized, IntPtr otherWindow)
         {
-            if (minimized ||
+            if (_taskbarGuardDisabled ||
+                minimized ||
                 _taskbarGuardTimer == null ||
                 hwnd == IntPtr.Zero ||
                 !IsLoaded ||
@@ -169,56 +205,62 @@ namespace _1RM.View.Host
 
         private void TaskbarMinimizeGuardTimerOnTick(object? sender, EventArgs e)
         {
-            _taskbarGuardTimer?.Stop();
-
-            if (!_taskbarGuardCandidateArmed)
+            if (_taskbarGuardDisabled)
             {
+                _taskbarGuardTimer?.Stop();
                 return;
             }
-
-            long candidateId = _taskbarGuardCandidateId;
-            double elapsedMs = (DateTime.UtcNow - _taskbarGuardCandidateStartedUtc).TotalMilliseconds;
-
-            bool shouldCompensate =
-                _taskbarGuardReactivated &&
-                elapsedMs >= GuardDelayMilliseconds - 30 &&
-                elapsedMs < 2000 &&
-                _taskbarGuardHwnd != IntPtr.Zero &&
-                IsLoaded &&
-                IsVisible &&
-                IsActive &&
-                WindowState == WindowState.Maximized &&
-                GuardIsWindowVisible(_taskbarGuardHwnd) &&
-                !GuardIsIconic(_taskbarGuardHwnd) &&
-                GuardIsZoomed(_taskbarGuardHwnd);
-
-            if (!shouldCompensate)
-            {
-                TaskbarGuardLog(
-                    "SKIP",
-                    $"candidate={candidateId}; elapsedMs={elapsedMs:F1}; " +
-                    $"reactivated={_taskbarGuardReactivated}; child={_taskbarGuardChildClass}; " +
-                    $"root={_taskbarGuardRootClass}");
-                ClearTaskbarMinimizeGuardCandidate();
-                return;
-            }
-
-            // Clear first so the state transition generated below cannot re-enter the
-            // same candidate. Setting WindowState is the same path used by 1Remote's
-            // own title-bar minimize button, which was observed to recover the taskbar.
-            ClearTaskbarMinimizeGuardCandidate();
-
-            TaskbarGuardLog(
-                "COMPENSATE",
-                $"candidate={candidateId}; elapsedMs={elapsedMs:F1}; applying WindowState=Minimized");
 
             try
             {
+                _taskbarGuardTimer?.Stop();
+
+                if (!_taskbarGuardCandidateArmed)
+                {
+                    return;
+                }
+
+                long candidateId = _taskbarGuardCandidateId;
+                double elapsedMs = (DateTime.UtcNow - _taskbarGuardCandidateStartedUtc).TotalMilliseconds;
+
+                bool shouldCompensate =
+                    _taskbarGuardReactivated &&
+                    elapsedMs >= GuardDelayMilliseconds - 30 &&
+                    elapsedMs < 2000 &&
+                    _taskbarGuardHwnd != IntPtr.Zero &&
+                    IsLoaded &&
+                    IsVisible &&
+                    IsActive &&
+                    WindowState == WindowState.Maximized &&
+                    GuardIsWindowVisible(_taskbarGuardHwnd) &&
+                    !GuardIsIconic(_taskbarGuardHwnd) &&
+                    GuardIsZoomed(_taskbarGuardHwnd);
+
+                if (!shouldCompensate)
+                {
+                    TaskbarGuardLog(
+                        "SKIP",
+                        $"candidate={candidateId}; elapsedMs={elapsedMs:F1}; " +
+                        $"reactivated={_taskbarGuardReactivated}; child={_taskbarGuardChildClass}; " +
+                        $"root={_taskbarGuardRootClass}");
+                    ClearTaskbarMinimizeGuardCandidate();
+                    return;
+                }
+
+                // Clear first so the state transition generated below cannot re-enter
+                // the same candidate. This is the same WPF state path used by the
+                // application's own title-bar minimize button.
+                ClearTaskbarMinimizeGuardCandidate();
+
+                TaskbarGuardLog(
+                    "COMPENSATE",
+                    $"candidate={candidateId}; elapsedMs={elapsedMs:F1}; applying WindowState=Minimized");
+
                 WindowState = WindowState.Minimized;
             }
             catch (Exception ex)
             {
-                TaskbarGuardLog("ERROR", $"candidate={candidateId}; {ex}");
+                DisableTaskbarMinimizeGuard("timer callback failed", ex);
             }
         }
 
@@ -242,7 +284,15 @@ namespace _1RM.View.Host
 
         private void ClearTaskbarMinimizeGuardCandidate()
         {
-            _taskbarGuardTimer?.Stop();
+            try
+            {
+                _taskbarGuardTimer?.Stop();
+            }
+            catch
+            {
+                // Best-effort cleanup only.
+            }
+
             _taskbarGuardCandidateArmed = false;
             _taskbarGuardReactivated = false;
             _taskbarGuardCandidateStartedUtc = DateTime.MinValue;
@@ -255,10 +305,15 @@ namespace _1RM.View.Host
             childClass = string.Empty;
             rootClass = string.Empty;
 
-            if (!GuardGetCursorPos(out GuardPoint point))
+            // Use the managed WinForms cursor facade instead of declaring a renamed
+            // GetCursorPos P/Invoke. The v3 crash was caused by a missing EntryPoint
+            // mapping on that renamed declaration.
+            System.Drawing.Point cursor = System.Windows.Forms.Cursor.Position;
+            var point = new GuardPoint
             {
-                return false;
-            }
+                X = cursor.X,
+                Y = cursor.Y,
+            };
 
             IntPtr child = GuardWindowFromPoint(point);
             if (child == IntPtr.Zero)
@@ -286,20 +341,72 @@ namespace _1RM.View.Host
             return isTaskList && isTaskbarRoot;
         }
 
+        private bool TaskbarGuardNativePreflight(out Exception? error)
+        {
+            try
+            {
+                System.Drawing.Point cursor = System.Windows.Forms.Cursor.Position;
+                var point = new GuardPoint { X = cursor.X, Y = cursor.Y };
+                IntPtr child = GuardWindowFromPoint(point);
+                if (child != IntPtr.Zero)
+                {
+                    IntPtr root = GuardGetAncestor(child, GuardGaRoot);
+                    _ = GuardGetClassName(child);
+                    if (root != IntPtr.Zero)
+                    {
+                        _ = GuardGetClassName(root);
+                    }
+                }
+
+                _ = GuardIsWindowVisible(_taskbarGuardHwnd);
+                _ = GuardIsIconic(_taskbarGuardHwnd);
+                _ = GuardIsZoomed(_taskbarGuardHwnd);
+                _ = GuardGetForegroundWindow();
+
+                error = null;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+                return false;
+            }
+        }
+
+        private void DisableTaskbarMinimizeGuard(string context, Exception? exception)
+        {
+            _taskbarGuardDisabled = true;
+            ClearTaskbarMinimizeGuardCandidate();
+
+            if (Interlocked.Exchange(ref _taskbarGuardFaultLogged, 1) == 0)
+            {
+                // This logger performs file I/O only. It deliberately avoids all
+                // native calls so a failed P/Invoke cannot recursively fault again.
+                TaskbarGuardEmergencyLog("DISABLED", context, exception);
+            }
+        }
+
         private void TaskbarMinimizeGuardOnClosed(object? sender, EventArgs e)
         {
             ClearTaskbarMinimizeGuardCandidate();
 
-            if (_taskbarGuardTimer != null)
+            try
             {
-                _taskbarGuardTimer.Tick -= TaskbarMinimizeGuardTimerOnTick;
-                _taskbarGuardTimer = null;
-            }
+                if (_taskbarGuardTimer != null)
+                {
+                    _taskbarGuardTimer.Tick -= TaskbarMinimizeGuardTimerOnTick;
+                    _taskbarGuardTimer = null;
+                }
 
-            if (_taskbarGuardHwndSource != null)
+                if (_taskbarGuardHwndSource != null)
+                {
+                    _taskbarGuardHwndSource.RemoveHook(TaskbarMinimizeGuardWndProc);
+                    _taskbarGuardHwndSource = null;
+                }
+            }
+            catch (Exception ex)
             {
-                _taskbarGuardHwndSource.RemoveHook(TaskbarMinimizeGuardWndProc);
-                _taskbarGuardHwndSource = null;
+                TaskbarGuardEmergencyLog("CLEANUP_ERROR", "guard cleanup failed", ex);
             }
 
             Closed -= TaskbarMinimizeGuardOnClosed;
@@ -317,11 +424,11 @@ namespace _1RM.View.Host
                     $"TaskbarMinimizeGuard-{Process.GetCurrentProcess().Id}.log");
 
                 string header =
-                    $"# 1Remote 1.2.1 missed-minimize guard\r\n" +
+                    $"# 1Remote 1.2.1 missed-minimize guard v3.1\r\n" +
                     $"# PID={Process.GetCurrentProcess().Id}; " +
                     $"OS={Environment.OSVersion}; Is64Bit={Environment.Is64BitProcess}; " +
                     $"Exe={Environment.ProcessPath}\r\n" +
-                    $"# Delay={GuardDelayMilliseconds}ms; only arms on MSTaskListWClass/Shell_TrayWnd.\r\n";
+                    $"# Delay={GuardDelayMilliseconds}ms; fail-closed HwndSource hook.\r\n";
 
                 lock (_taskbarGuardLogLock)
                 {
@@ -341,9 +448,10 @@ namespace _1RM.View.Host
                 return;
             }
 
+            string snapshot;
             try
             {
-                string snapshot =
+                snapshot =
                     $"time={DateTime.Now:O}; event={eventName}; {details}; " +
                     $"thread={Thread.CurrentThread.ManagedThreadId}; " +
                     $"hwnd=0x{_taskbarGuardHwnd.ToInt64():X}; " +
@@ -353,15 +461,70 @@ namespace _1RM.View.Host
                     $"iconic={GuardIsIconic(_taskbarGuardHwnd)}; " +
                     $"zoomed={GuardIsZoomed(_taskbarGuardHwnd)}; " +
                     $"foreground=0x{GuardGetForegroundWindow().ToInt64():X}\r\n";
+            }
+            catch (Exception ex)
+            {
+                snapshot =
+                    $"time={DateTime.Now:O}; event={eventName}; {details}; " +
+                    $"snapshotError={ex.GetType().FullName}: {ex.Message}\r\n";
+            }
+
+            QueueTaskbarGuardLogLine(snapshot);
+        }
+
+        private void QueueTaskbarGuardLogLine(string line)
+        {
+            string path = _taskbarGuardLogPath;
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    lock (_taskbarGuardLogLock)
+                    {
+                        File.AppendAllText(path, line, Encoding.UTF8);
+                    }
+                }
+                catch
+                {
+                    // Logging is best-effort and must never affect the remote session.
+                }
+            });
+        }
+
+        private void TaskbarGuardEmergencyLog(string eventName, string context, Exception? exception)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(_taskbarGuardLogPath))
+                {
+                    string logDirectory = Path.Combine(AppPathHelper.Instance.BaseDirPathForLocality, ".logs");
+                    Directory.CreateDirectory(logDirectory);
+                    _taskbarGuardLogPath = Path.Combine(
+                        logDirectory,
+                        $"TaskbarMinimizeGuard-{Process.GetCurrentProcess().Id}.log");
+                }
+
+                string exceptionText = exception == null
+                    ? "none"
+                    : $"{exception.GetType().FullName}: {exception.Message}";
+
+                string line =
+                    $"time={DateTime.Now:O}; event={eventName}; context={context}; " +
+                    $"exception={exceptionText}\r\n";
 
                 lock (_taskbarGuardLogLock)
                 {
-                    File.AppendAllText(_taskbarGuardLogPath, snapshot, Encoding.UTF8);
+                    File.AppendAllText(_taskbarGuardLogPath, line, Encoding.UTF8);
                 }
             }
             catch
             {
-                // Logging is best-effort and must never affect the remote session.
+                // Last-resort diagnostics must never throw.
             }
         }
 
@@ -395,32 +558,28 @@ namespace _1RM.View.Host
             public int Y;
         }
 
-        [DllImport("user32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool GuardGetCursorPos(out GuardPoint point);
-
-        [DllImport("user32.dll", EntryPoint = "WindowFromPoint")]
+        [DllImport("user32.dll", EntryPoint = "WindowFromPoint", ExactSpelling = true)]
         private static extern IntPtr GuardWindowFromPoint(GuardPoint point);
 
-        [DllImport("user32.dll", EntryPoint = "GetAncestor")]
+        [DllImport("user32.dll", EntryPoint = "GetAncestor", ExactSpelling = true)]
         private static extern IntPtr GuardGetAncestor(IntPtr hwnd, uint flags);
 
-        [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DllImport("user32.dll", EntryPoint = "GetClassNameW", ExactSpelling = true, CharSet = CharSet.Unicode, SetLastError = true)]
         private static extern int GuardGetClassNameNative(IntPtr hwnd, StringBuilder className, int maxCount);
 
-        [DllImport("user32.dll", EntryPoint = "IsWindowVisible", SetLastError = true)]
+        [DllImport("user32.dll", EntryPoint = "IsWindowVisible", ExactSpelling = true, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GuardIsWindowVisible(IntPtr hwnd);
 
-        [DllImport("user32.dll", EntryPoint = "IsIconic", SetLastError = true)]
+        [DllImport("user32.dll", EntryPoint = "IsIconic", ExactSpelling = true, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GuardIsIconic(IntPtr hwnd);
 
-        [DllImport("user32.dll", EntryPoint = "IsZoomed", SetLastError = true)]
+        [DllImport("user32.dll", EntryPoint = "IsZoomed", ExactSpelling = true, SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         private static extern bool GuardIsZoomed(IntPtr hwnd);
 
-        [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]
+        [DllImport("user32.dll", EntryPoint = "GetForegroundWindow", ExactSpelling = true)]
         private static extern IntPtr GuardGetForegroundWindow();
     }
 }
