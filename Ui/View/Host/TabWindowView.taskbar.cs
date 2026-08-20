@@ -14,7 +14,7 @@ namespace _1RM.View.Host
         private static readonly int TaskbarCreatedMessage = RegisterWindowMessage("TaskbarCreated");
         private static readonly TimeSpan MinimumRepairInterval = TimeSpan.FromSeconds(5);
 
-        private const uint GaRoot = 2;
+        private const uint TaskbarGaRoot = 2;
 
         private DispatcherTimer? _taskbarRepairTimer;
         private HwndSource? _taskbarRepairHwndSource;
@@ -177,13 +177,13 @@ namespace _1RM.View.Host
                 return false;
             }
 
-            IntPtr root = GetAncestor(hwnd, GaRoot);
+            IntPtr root = TaskbarGetAncestor(hwnd, TaskbarGaRoot);
             return IsExplorerShellWindow(root != IntPtr.Zero ? root : hwnd);
         }
 
         private static bool IsExplorerShellForeground()
         {
-            IntPtr hwnd = GetForegroundWindow();
+            IntPtr hwnd = TaskbarGetForegroundWindow();
             return hwnd != IntPtr.Zero && IsExplorerShellWindow(hwnd);
         }
 
@@ -239,11 +239,11 @@ namespace _1RM.View.Host
         [DllImport("user32.dll")]
         private static extern IntPtr WindowFromPoint(NativePoint point);
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetAncestor(IntPtr hwnd, uint flags);
+        [DllImport("user32.dll", EntryPoint = "GetAncestor")]
+        private static extern IntPtr TaskbarGetAncestor(IntPtr hwnd, uint flags);
 
-        [DllImport("user32.dll")]
-        private static extern IntPtr GetForegroundWindow();
+        [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]
+        private static extern IntPtr TaskbarGetForegroundWindow();
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
