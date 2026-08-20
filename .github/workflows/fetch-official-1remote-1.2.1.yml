@@ -20,6 +20,11 @@ jobs:
   fetch-and-verify:
     runs-on: windows-latest
     steps:
+      - name: Install .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
       - name: Download official 1Remote 1.2.1 release asset
         shell: pwsh
         run: |
@@ -44,9 +49,31 @@ jobs:
           if ($files.Count -eq 0) { throw "Official release ZIP contains no files." }
           $exe = $files | Where-Object { $_.Name -ieq "1Remote.exe" } | Select-Object -First 1
           if ($null -eq $exe) { throw "1Remote.exe was not found in the official release ZIP." }
+          "OFFICIAL_EXE=$($exe.FullName)" >> $env:GITHUB_ENV
           Write-Host "Official executable: $($exe.FullName)"
           Write-Host "Official executable size: $($exe.Length) bytes"
           Get-ChildItem -Path $extract | Select-Object Name, Length, Mode | Format-Table -AutoSize
+
+      - name: Verify database-compatibility value can be recovered without disclosure
+        shell: pwsh
+        run: |
+          dotnet tool install --global ilspycmd
+          $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+          $decompiled = Join-Path $env:RUNNER_TEMP "Assert.decompiled.cs"
+          & ilspycmd -t "_1RM.Assert" $env:OFFICIAL_EXE | Set-Content -Path $decompiled -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) { throw "ILSpy failed to inspect the official single-file executable." }
+
+          $text = Get-Content $decompiled -Raw
+          $match = [regex]::Match($text, 'STRING_SALT\s*=\s*"((?:\\.|[^"\\])*)"\s*;')
+          if (-not $match.Success) { throw "STRING_SALT was not found in the official executable." }
+          $saltLiteral = $match.Groups[1].Value
+          if ([string]::IsNullOrWhiteSpace($saltLiteral) -or $saltLiteral.Contains("REPLACE_ME_WITH_SALT")) {
+            throw "The recovered database-compatibility value is invalid."
+          }
+
+          Write-Output "::add-mask::$saltLiteral"
+          Write-Host "Database-compatible build value was recovered successfully without printing or uploading it."
+          Remove-Item $decompiled -Force
 
       - name: Upload verified official asset
         uses: actions/upload-artifact@v4
