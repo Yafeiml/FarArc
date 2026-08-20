@@ -57,15 +57,25 @@ jobs:
       - name: Verify database-compatibility value can be recovered without disclosure
         shell: pwsh
         run: |
+          dotnet tool install --global sfextract
           dotnet tool install --global ilspycmd
           $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+
+          $bundleDir = Join-Path $env:RUNNER_TEMP "official-bundle"
+          New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
+          & sfextract $env:OFFICIAL_EXE -o $bundleDir
+          if ($LASTEXITCODE -ne 0) { throw "Failed to extract the official .NET single-file bundle." }
+
+          $assembly = Get-ChildItem -Path $bundleDir -Recurse -File -Filter "1Remote.dll" | Select-Object -First 1
+          if ($null -eq $assembly) { throw "The managed 1Remote.dll entry was not found in the official bundle." }
+
           $decompiled = Join-Path $env:RUNNER_TEMP "Assert.decompiled.cs"
-          & ilspycmd -t "_1RM.Assert" $env:OFFICIAL_EXE | Set-Content -Path $decompiled -Encoding UTF8
-          if ($LASTEXITCODE -ne 0) { throw "ILSpy failed to inspect the official single-file executable." }
+          & ilspycmd -t "_1RM.Assert" $assembly.FullName | Set-Content -Path $decompiled -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) { throw "ILSpy failed to inspect the managed assembly from the official bundle." }
 
           $text = Get-Content $decompiled -Raw
           $match = [regex]::Match($text, 'STRING_SALT\s*=\s*"((?:\\.|[^"\\])*)"\s*;')
-          if (-not $match.Success) { throw "STRING_SALT was not found in the official executable." }
+          if (-not $match.Success) { throw "STRING_SALT was not found in the official managed assembly." }
           $saltLiteral = $match.Groups[1].Value
           if ([string]::IsNullOrWhiteSpace($saltLiteral) -or $saltLiteral.Contains("REPLACE_ME_WITH_SALT")) {
             throw "The recovered database-compatibility value is invalid."
@@ -74,6 +84,7 @@ jobs:
           Write-Output "::add-mask::$saltLiteral"
           Write-Host "Database-compatible build value was recovered successfully without printing or uploading it."
           Remove-Item $decompiled -Force
+          Remove-Item $bundleDir -Recurse -Force
 
       - name: Upload verified official asset
         uses: actions/upload-artifact@v4
