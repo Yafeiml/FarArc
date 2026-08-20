@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - "fix/win11-25h2-taskbar-registration"
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -70,6 +73,7 @@ jobs:
           retention-days: 30
 
       - name: Publish GitHub prerelease
+        if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: taskbar-fix-${{ github.run_number }}
