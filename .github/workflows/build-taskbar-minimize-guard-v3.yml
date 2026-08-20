@@ -1,4 +1,4 @@
-name: Build taskbar missed-minimize guard v3 x64
+name: Build taskbar missed-minimize guard v3.1 x64
 
 on:
   push:
@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: taskbar-missed-minimize-v3-${{ github.ref }}
+  group: taskbar-missed-minimize-v3-1-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -21,7 +21,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout exact v3 branch and submodules
+      - name: Checkout exact v3.1 branch and submodules
         uses: actions/checkout@v4
         with:
           ref: fix/win11-25h2-missed-minimize-v3
@@ -35,6 +35,68 @@ jobs:
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      - name: Validate fail-closed HwndSource hook and native exports
+        shell: pwsh
+        run: |
+          $guardPath = Join-Path $env:GITHUB_WORKSPACE "Ui\View\Host\TabWindowView.taskbar_diagnostics.cs"
+          $guardText = Get-Content $guardPath -Raw
+
+          if ($guardText -match 'extern\s+bool\s+GuardGetCursorPos') {
+            throw "Unsafe renamed GetCursorPos P/Invoke is still present."
+          }
+
+          $requiredFragments = @(
+            'TaskbarGuardNativePreflight',
+            'DisableTaskbarMinimizeGuard',
+            'if (_taskbarGuardDisabled)',
+            'catch (Exception ex)',
+            'System.Windows.Forms.Cursor.Position',
+            'ExactSpelling = true'
+          )
+
+          foreach ($fragment in $requiredFragments) {
+            if (-not $guardText.Contains($fragment)) {
+              throw "Required fail-closed guard fragment is missing: $fragment"
+            }
+          }
+
+          Add-Type -TypeDefinition @"
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class NativeExportProbe
+          {
+              [DllImport("kernel32.dll", EntryPoint = "LoadLibraryW", CharSet = CharSet.Unicode, SetLastError = true)]
+              public static extern IntPtr LoadLibrary(string fileName);
+
+              [DllImport("kernel32.dll", EntryPoint = "GetProcAddress", CharSet = CharSet.Ansi, SetLastError = true)]
+              public static extern IntPtr GetProcAddress(IntPtr module, string procedureName);
+          }
+          "@
+
+          $user32 = [NativeExportProbe]::LoadLibrary("user32.dll")
+          if ($user32 -eq [IntPtr]::Zero) {
+            throw "Unable to load user32.dll for native export validation."
+          }
+
+          $requiredExports = @(
+            'WindowFromPoint',
+            'GetAncestor',
+            'GetClassNameW',
+            'IsWindowVisible',
+            'IsIconic',
+            'IsZoomed',
+            'GetForegroundWindow'
+          )
+
+          foreach ($export in $requiredExports) {
+            if ([NativeExportProbe]::GetProcAddress($user32, $export) -eq [IntPtr]::Zero) {
+              throw "Required user32.dll export was not found: $export"
+            }
+          }
+
+          Write-Host "Fail-closed source checks and user32.dll export checks passed."
 
       - name: Recover and inject database-compatible value from verified official 1.2.1
         shell: pwsh
@@ -120,7 +182,7 @@ jobs:
         shell: pwsh
         run: dotnet publish .\Ui\Ui.csproj -p:PublishProfile=.\Ui\Properties\PublishProfiles\x64-single.file.application.pubxml --no-restore
 
-      - name: Create v3 ZIP
+      - name: Create v3.1 ZIP
         id: package
         shell: pwsh
         run: |
@@ -130,15 +192,15 @@ jobs:
           }
 
           $sourceSha = (git rev-parse --short=8 HEAD).Trim()
-          $zipName = "1Remote-1.2.1-win-x64-taskbar-minimize-guard-v3-$sourceSha.zip"
+          $zipName = "1Remote-1.2.1-win-x64-taskbar-minimize-guard-v3.1-$sourceSha.zip"
           $zipPath = Join-Path $env:GITHUB_WORKSPACE $zipName
           Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
           "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
 
-      - name: Upload v3 artifact
+      - name: Upload v3.1 artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 1Remote-1.2.1-win-x64-taskbar-minimize-guard-v3
+          name: 1Remote-1.2.1-win-x64-taskbar-minimize-guard-v3.1
           path: ${{ steps.package.outputs.zip_path }}
           if-no-files-found: error
           retention-days: 14
