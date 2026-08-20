@@ -35,9 +35,9 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Restore NuGet packages
+      - name: Restore NuGet packages for win-x64
         shell: pwsh
-        run: dotnet restore .\Ui\Ui.csproj -p:Configuration=Release
+        run: dotnet restore .\Ui\Ui.csproj -r win-x64 -p:Configuration=Release
 
       - name: Publish self-contained win-x64 build
         shell: pwsh
