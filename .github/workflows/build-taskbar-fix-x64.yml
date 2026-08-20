@@ -4,10 +4,13 @@ on:
   push:
     branches:
       - "fix/win11-25h2-taskbar-registration"
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: "Publish a public GitHub prerelease"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -34,6 +37,25 @@ jobs:
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
+
+      - name: Inject database-compatible encryption salt
+        shell: pwsh
+        env:
+          STRING_SALT: ${{ secrets.GLOBAL_STRING_ENCRYPTION_SLAT }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:STRING_SALT)) {
+            throw "Missing repository secret GLOBAL_STRING_ENCRYPTION_SLAT. Refusing to create a build that cannot read databases created by the official 1Remote build."
+          }
+
+          .\scripts\Set-Secret.ps1 `
+            -filePath .\Ui\Assert.cs `
+            -Pattern "===REPLACE_ME_WITH_SALT===" `
+            -Secret $env:STRING_SALT
+
+          $assertText = Get-Content .\Ui\Assert.cs -Raw
+          if ($assertText.Contains("===REPLACE_ME_WITH_SALT===")) {
+            throw "The encryption salt placeholder is still present after secret injection."
+          }
 
       - name: Restore NuGet packages for win-x64
         shell: pwsh
@@ -73,7 +95,7 @@ jobs:
           retention-days: 30
 
       - name: Publish GitHub prerelease
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch' && inputs.publish_release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: taskbar-fix-${{ github.run_number }}
@@ -83,6 +105,8 @@ jobs:
           generate_release_notes: false
           body: |
             Experimental unsigned x64 build for diagnosing and repairing the disappearing remote-session taskbar button on Windows 11 25H2, including compatibility handling for replacement taskbars such as StartAllBack.
+
+            This build was produced only after injecting a database-compatible encryption salt through the repository Actions secret `GLOBAL_STRING_ENCRYPTION_SLAT`.
 
             Source branch: `${{ github.ref_name }}`
             Commit: `${{ github.sha }}`
