@@ -39,6 +39,8 @@ jobs:
       - name: Recover and inject database-compatible value from verified official 1.2.1
         shell: pwsh
         run: |
+          Write-Host "Selected SDK: $(dotnet --version)"
+
           $officialUrl = "https://github.com/1Remote/1Remote/releases/download/1.2.1/1Remote-1.2.1-net9-x64.zip"
           $expectedSha256 = "825ae0d6d6ed45dbb155ed809b976c2a7532578b124b3b55c0cfc6bfa3267411"
           $officialZip = Join-Path $env:RUNNER_TEMP "1Remote-1.2.1-net9-x64.zip"
@@ -59,7 +61,7 @@ jobs:
           }
 
           dotnet tool install --global sfextract
-          dotnet tool install --global ilspycmd
+          dotnet tool install --global ilspycmd --version 9.1.0.7988
           $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
 
           New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
