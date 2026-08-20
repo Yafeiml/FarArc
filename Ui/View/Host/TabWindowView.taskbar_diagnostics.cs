@@ -11,11 +11,9 @@ using _1RM.Service;
 namespace _1RM.View.Host
 {
     /// <summary>
-    /// Diagnostic-only instrumentation for the Windows 11 / replacement-taskbar issue.
-    ///
-    /// This file deliberately does not call ITaskbarList, ShowInTaskbar, ShowWindow,
-    /// Activate, SetForegroundWindow, or change WindowState. It only observes selected
-    /// Win32 messages and records native/managed window state for one reproduction.
+    /// Observation-only instrumentation for the Windows 11 taskbar issue.
+    /// It never calls ITaskbarList, ShowWindow, Activate, SetForegroundWindow,
+    /// changes ShowInTaskbar, changes WindowState, or marks a Win32 message handled.
     /// </summary>
     public partial class TabWindowView
     {
@@ -24,155 +22,143 @@ namespace _1RM.View.Host
         private const uint DiagGwOwner = 4;
         private const uint DiagGaRoot = 2;
 
-        private const int DiagWmSize = 0x0005;
-        private const int DiagWmActivate = 0x0006;
-        private const int DiagWmSetFocus = 0x0007;
-        private const int DiagWmKillFocus = 0x0008;
-        private const int DiagWmShowWindow = 0x0018;
-        private const int DiagWmActivateApp = 0x001C;
-        private const int DiagWmMouseActivate = 0x0021;
-        private const int DiagWmWindowPosChanging = 0x0046;
-        private const int DiagWmWindowPosChanged = 0x0047;
-        private const int DiagWmStyleChanging = 0x007C;
-        private const int DiagWmStyleChanged = 0x007D;
-        private const int DiagWmNcActivate = 0x0086;
-        private const int DiagWmSysCommand = 0x0112;
+        private const int WmSize = 0x0005;
+        private const int WmActivate = 0x0006;
+        private const int WmSetFocus = 0x0007;
+        private const int WmKillFocus = 0x0008;
+        private const int WmShowWindow = 0x0018;
+        private const int WmActivateApp = 0x001C;
+        private const int WmMouseActivate = 0x0021;
+        private const int WmWindowPosChanged = 0x0047;
+        private const int WmStyleChanging = 0x007C;
+        private const int WmStyleChanged = 0x007D;
+        private const int WmNcActivate = 0x0086;
+        private const int WmSysCommand = 0x0112;
 
-        private static readonly object TaskbarDiagnosticFileLock = new object();
-        private static long _taskbarDiagnosticSequence;
-        private static readonly int DiagTaskbarCreatedMessage = DiagRegisterWindowMessage("TaskbarCreated");
-        private static readonly int DiagTaskbarButtonCreatedMessage = DiagRegisterWindowMessage("TaskbarButtonCreated");
+        private static readonly object DiagnosticFileLock = new object();
+        private static long _diagnosticSequence;
+        private static readonly int TaskbarCreatedMessage = NativeRegisterWindowMessage("TaskbarCreated");
+        private static readonly int TaskbarButtonCreatedMessage = NativeRegisterWindowMessage("TaskbarButtonCreated");
 
-        private HwndSource? _taskbarDiagnosticHwndSource;
-        private string? _taskbarDiagnosticLogPath;
+        private HwndSource? _diagnosticHwndSource;
+        private string? _diagnosticLogPath;
 
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
 
             _myHandle = new WindowInteropHelper(this).Handle;
-            _taskbarDiagnosticHwndSource = HwndSource.FromHwnd(_myHandle);
-            _taskbarDiagnosticHwndSource?.AddHook(TaskbarDiagnosticWndProc);
+            InitializeDiagnosticLogPath();
 
-            Activated += TaskbarDiagnosticOnActivated;
-            Deactivated += TaskbarDiagnosticOnDeactivated;
-            StateChanged += TaskbarDiagnosticOnStateChanged;
-            IsVisibleChanged += TaskbarDiagnosticOnIsVisibleChanged;
-            Closed += TaskbarDiagnosticOnClosed;
+            _diagnosticHwndSource = HwndSource.FromHwnd(_myHandle);
+            _diagnosticHwndSource?.AddHook(DiagnosticWndProc);
 
-            InitializeTaskbarDiagnosticLog();
-            WriteTaskbarDiagnostic("EVENT SourceInitialized", string.Empty);
+            Activated += DiagnosticOnActivated;
+            Deactivated += DiagnosticOnDeactivated;
+            StateChanged += DiagnosticOnStateChanged;
+            IsVisibleChanged += DiagnosticOnVisibilityChanged;
+            Closed += DiagnosticOnClosed;
+
+            WriteDiagnostic("EVENT SourceInitialized", string.Empty);
         }
 
-        private void InitializeTaskbarDiagnosticLog()
+        private void InitializeDiagnosticLogPath()
         {
             try
             {
-                string logDirectory = Path.Combine(AppPathHelper.Instance.BaseDirPathForLocality, ".logs");
-                Directory.CreateDirectory(logDirectory);
-                _taskbarDiagnosticLogPath = Path.Combine(logDirectory, $"TaskbarDiagnostics-{Environment.ProcessId}.log");
+                string directory = Path.Combine(AppPathHelper.Instance.BaseDirPathForLocality, ".logs");
+                Directory.CreateDirectory(directory);
+                _diagnosticLogPath = Path.Combine(directory, $"TaskbarDiagnostics-{Environment.ProcessId}.log");
             }
             catch
             {
-                _taskbarDiagnosticLogPath = Path.Combine(Path.GetTempPath(), $"1Remote-TaskbarDiagnostics-{Environment.ProcessId}.log");
+                _diagnosticLogPath = Path.Combine(Path.GetTempPath(), $"1Remote-TaskbarDiagnostics-{Environment.ProcessId}.log");
             }
-
-            string header =
-                $"# 1Remote taskbar diagnostics (observation only){Environment.NewLine}" +
-                $"# PID={Environment.ProcessId}; OS={Environment.OSVersion}; Is64BitProcess={Environment.Is64BitProcess}; " +
-                $"Executable={Environment.ProcessPath}{Environment.NewLine}" +
-                $"# No taskbar registration, activation, minimization, style, owner, or WindowState changes are performed by this instrumentation.{Environment.NewLine}";
 
             try
             {
-                lock (TaskbarDiagnosticFileLock)
+                string header =
+                    $"# 1Remote 1.2.1 taskbar diagnostics — observation only{Environment.NewLine}" +
+                    $"# PID={Environment.ProcessId}; OS={Environment.OSVersion}; Is64Bit={Environment.Is64BitProcess}; Exe={Environment.ProcessPath}{Environment.NewLine}" +
+                    $"# This instrumentation does not modify taskbar registration, activation, window state, styles, or ownership.{Environment.NewLine}";
+                lock (DiagnosticFileLock)
                 {
-                    File.AppendAllText(_taskbarDiagnosticLogPath, header, Encoding.UTF8);
+                    File.AppendAllText(_diagnosticLogPath, header, Encoding.UTF8);
                 }
             }
             catch
             {
-                // Diagnostics must never affect application behaviour.
+                // Logging must never affect application behaviour.
             }
         }
 
-        private void TaskbarDiagnosticOnActivated(object? sender, EventArgs e)
-        {
-            WriteTaskbarDiagnostic("EVENT Activated", string.Empty);
-        }
+        private void DiagnosticOnActivated(object? sender, EventArgs e) =>
+            WriteDiagnostic("EVENT Activated", string.Empty);
 
-        private void TaskbarDiagnosticOnDeactivated(object? sender, EventArgs e)
-        {
-            WriteTaskbarDiagnostic("EVENT Deactivated", string.Empty);
-        }
+        private void DiagnosticOnDeactivated(object? sender, EventArgs e) =>
+            WriteDiagnostic("EVENT Deactivated", string.Empty);
 
-        private void TaskbarDiagnosticOnStateChanged(object? sender, EventArgs e)
-        {
-            WriteTaskbarDiagnostic("EVENT StateChanged", $"newManagedState={WindowState}");
-        }
+        private void DiagnosticOnStateChanged(object? sender, EventArgs e) =>
+            WriteDiagnostic("EVENT StateChanged", $"newManagedState={WindowState}");
 
-        private void TaskbarDiagnosticOnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
-        {
-            WriteTaskbarDiagnostic("EVENT IsVisibleChanged", $"old={e.OldValue}; new={e.NewValue}");
-        }
+        private void DiagnosticOnVisibilityChanged(object sender, DependencyPropertyChangedEventArgs e) =>
+            WriteDiagnostic("EVENT IsVisibleChanged", $"old={e.OldValue}; new={e.NewValue}");
 
-        private void TaskbarDiagnosticOnClosed(object? sender, EventArgs e)
+        private void DiagnosticOnClosed(object? sender, EventArgs e)
         {
-            WriteTaskbarDiagnostic("EVENT Closed", string.Empty);
+            WriteDiagnostic("EVENT Closed", string.Empty);
 
-            if (_taskbarDiagnosticHwndSource != null)
+            if (_diagnosticHwndSource != null)
             {
-                _taskbarDiagnosticHwndSource.RemoveHook(TaskbarDiagnosticWndProc);
-                _taskbarDiagnosticHwndSource = null;
+                _diagnosticHwndSource.RemoveHook(DiagnosticWndProc);
+                _diagnosticHwndSource = null;
             }
 
-            Activated -= TaskbarDiagnosticOnActivated;
-            Deactivated -= TaskbarDiagnosticOnDeactivated;
-            StateChanged -= TaskbarDiagnosticOnStateChanged;
-            IsVisibleChanged -= TaskbarDiagnosticOnIsVisibleChanged;
-            Closed -= TaskbarDiagnosticOnClosed;
+            Activated -= DiagnosticOnActivated;
+            Deactivated -= DiagnosticOnDeactivated;
+            StateChanged -= DiagnosticOnStateChanged;
+            IsVisibleChanged -= DiagnosticOnVisibilityChanged;
+            Closed -= DiagnosticOnClosed;
         }
 
-        private IntPtr TaskbarDiagnosticWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+        private IntPtr DiagnosticWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
-            string? messageName = GetTaskbarDiagnosticMessageName(msg);
-            if (messageName != null)
+            string? name = GetMessageName(msg);
+            if (name != null)
             {
-                string details = DescribeTaskbarDiagnosticMessage(msg, wParam, lParam);
-                WriteTaskbarDiagnostic($"MSG {messageName}", details);
+                WriteDiagnostic("MSG " + name, DescribeMessage(msg, wParam, lParam));
             }
 
-            // Observation only. Never mark a message handled.
+            // Never set handled: this build only observes messages.
             return IntPtr.Zero;
         }
 
-        private static string? GetTaskbarDiagnosticMessageName(int msg)
+        private static string? GetMessageName(int msg)
         {
-            if (DiagTaskbarCreatedMessage != 0 && msg == DiagTaskbarCreatedMessage)
+            if (TaskbarCreatedMessage != 0 && msg == TaskbarCreatedMessage)
                 return "TaskbarCreated";
-            if (DiagTaskbarButtonCreatedMessage != 0 && msg == DiagTaskbarButtonCreatedMessage)
+            if (TaskbarButtonCreatedMessage != 0 && msg == TaskbarButtonCreatedMessage)
                 return "TaskbarButtonCreated";
 
             return msg switch
             {
-                DiagWmSize => "WM_SIZE",
-                DiagWmActivate => "WM_ACTIVATE",
-                DiagWmSetFocus => "WM_SETFOCUS",
-                DiagWmKillFocus => "WM_KILLFOCUS",
-                DiagWmShowWindow => "WM_SHOWWINDOW",
-                DiagWmActivateApp => "WM_ACTIVATEAPP",
-                DiagWmMouseActivate => "WM_MOUSEACTIVATE",
-                DiagWmWindowPosChanging => "WM_WINDOWPOSCHANGING",
-                DiagWmWindowPosChanged => "WM_WINDOWPOSCHANGED",
-                DiagWmStyleChanging => "WM_STYLECHANGING",
-                DiagWmStyleChanged => "WM_STYLECHANGED",
-                DiagWmNcActivate => "WM_NCACTIVATE",
-                DiagWmSysCommand => "WM_SYSCOMMAND",
+                WmSize => "WM_SIZE",
+                WmActivate => "WM_ACTIVATE",
+                WmSetFocus => "WM_SETFOCUS",
+                WmKillFocus => "WM_KILLFOCUS",
+                WmShowWindow => "WM_SHOWWINDOW",
+                WmActivateApp => "WM_ACTIVATEAPP",
+                WmMouseActivate => "WM_MOUSEACTIVATE",
+                WmWindowPosChanged => "WM_WINDOWPOSCHANGED",
+                WmStyleChanging => "WM_STYLECHANGING",
+                WmStyleChanged => "WM_STYLECHANGED",
+                WmNcActivate => "WM_NCACTIVATE",
+                WmSysCommand => "WM_SYSCOMMAND",
                 _ => null,
             };
         }
 
-        private static string DescribeTaskbarDiagnosticMessage(int msg, IntPtr wParam, IntPtr lParam)
+        private static string DescribeMessage(int msg, IntPtr wParam, IntPtr lParam)
         {
             long wp = wParam.ToInt64();
             long lp = lParam.ToInt64();
@@ -181,44 +167,33 @@ namespace _1RM.View.Host
             {
                 switch (msg)
                 {
-                    case DiagWmSize:
+                    case WmSize:
                         return $"type={DescribeSizeType(unchecked((int)wp))}; clientWidth={LowWord(lp)}; clientHeight={HighWord(lp)}";
-
-                    case DiagWmActivate:
-                        return $"state={DescribeActivateState(LowWord(wp))}; minimized={HighWord(wp) != 0}; other={DescribeNativeWindow(lParam)}";
-
-                    case DiagWmSetFocus:
-                        return $"previous={DescribeNativeWindow(wParam)}";
-
-                    case DiagWmKillFocus:
-                        return $"next={DescribeNativeWindow(wParam)}";
-
-                    case DiagWmShowWindow:
+                    case WmActivate:
+                        return $"state={DescribeActivateState(LowWord(wp))}; minimized={HighWord(wp) != 0}; other={DescribeWindow(lParam)}";
+                    case WmSetFocus:
+                        return $"previous={DescribeWindow(wParam)}";
+                    case WmKillFocus:
+                        return $"next={DescribeWindow(wParam)}";
+                    case WmShowWindow:
                         return $"show={wp != 0}; status=0x{unchecked((ulong)lp):X}";
-
-                    case DiagWmActivateApp:
+                    case WmActivateApp:
                         return $"active={wp != 0}; otherThreadId={unchecked((uint)lp)}";
-
-                    case DiagWmMouseActivate:
-                        return $"topLevel={DescribeNativeWindow(wParam)}; hitTest={LowWord(lp)}; mouseMessage=0x{HighWord(lp):X4}";
-
-                    case DiagWmWindowPosChanging:
-                    case DiagWmWindowPosChanged:
+                    case WmMouseActivate:
+                        return $"topLevel={DescribeWindow(wParam)}; hitTest={LowWord(lp)}; mouseMessage=0x{HighWord(lp):X4}";
+                    case WmWindowPosChanged:
                         if (lParam != IntPtr.Zero)
                         {
-                            DiagWindowPos pos = Marshal.PtrToStructure<DiagWindowPos>(lParam);
-                            return $"insertAfter={DescribeNativeWindow(pos.HwndInsertAfter)}; x={pos.X}; y={pos.Y}; cx={pos.Cx}; cy={pos.Cy}; flags=0x{pos.Flags:X8}";
+                            NativeWindowPos pos = Marshal.PtrToStructure<NativeWindowPos>(lParam);
+                            return $"insertAfter={DescribeWindow(pos.HwndInsertAfter)}; x={pos.X}; y={pos.Y}; cx={pos.Cx}; cy={pos.Cy}; flags=0x{pos.Flags:X8}";
                         }
                         break;
-
-                    case DiagWmStyleChanging:
-                    case DiagWmStyleChanged:
+                    case WmStyleChanging:
+                    case WmStyleChanged:
                         return $"index={unchecked((int)wp)}; styleStruct=0x{unchecked((ulong)lp):X}";
-
-                    case DiagWmNcActivate:
+                    case WmNcActivate:
                         return $"active={wp != 0}; region=0x{unchecked((ulong)lp):X}";
-
-                    case DiagWmSysCommand:
+                    case WmSysCommand:
                         int command = unchecked((int)(wp & 0xFFF0));
                         return $"command={DescribeSysCommand(command)}; raw=0x{unchecked((ulong)wp):X}; source=0x{unchecked((ulong)lp):X}";
                 }
@@ -231,82 +206,78 @@ namespace _1RM.View.Host
             return $"wParam=0x{unchecked((ulong)wp):X}; lParam=0x{unchecked((ulong)lp):X}";
         }
 
-        private void WriteTaskbarDiagnostic(string source, string details)
+        private void WriteDiagnostic(string source, string details)
         {
-            string? path = _taskbarDiagnosticLogPath;
+            string? path = _diagnosticLogPath;
             if (string.IsNullOrWhiteSpace(path))
-            {
                 return;
-            }
 
-            long sequence = Interlocked.Increment(ref _taskbarDiagnosticSequence);
-            string snapshot;
+            long sequence = Interlocked.Increment(ref _diagnosticSequence);
+            string line;
 
             try
             {
                 IntPtr hwnd = _myHandle;
-                IntPtr foreground = DiagGetForegroundWindow();
-                IntPtr owner = hwnd != IntPtr.Zero ? DiagGetWindow(hwnd, DiagGwOwner) : IntPtr.Zero;
-                long style = hwnd != IntPtr.Zero ? DiagGetWindowLongPtr(hwnd, DiagGwlStyle).ToInt64() : 0;
-                long exStyle = hwnd != IntPtr.Zero ? DiagGetWindowLongPtr(hwnd, DiagGwlExStyle).ToInt64() : 0;
+                IntPtr foreground = NativeGetForegroundWindow();
+                IntPtr owner = hwnd != IntPtr.Zero ? NativeGetWindow(hwnd, DiagGwOwner) : IntPtr.Zero;
+                long style = hwnd != IntPtr.Zero ? GetWindowLongPtr(hwnd, DiagGwlStyle).ToInt64() : 0;
+                long exStyle = hwnd != IntPtr.Zero ? GetWindowLongPtr(hwnd, DiagGwlExStyle).ToInt64() : 0;
 
-                string cursorDescription = "unavailable";
-                if (DiagGetCursorPos(out DiagPoint point))
+                string cursor = "unavailable";
+                if (NativeGetCursorPos(out NativePoint point))
                 {
-                    IntPtr cursorWindow = DiagWindowFromPoint(point);
-                    IntPtr cursorRoot = cursorWindow != IntPtr.Zero ? DiagGetAncestor(cursorWindow, DiagGaRoot) : IntPtr.Zero;
-                    cursorDescription = $"point=({point.X},{point.Y}); child={DescribeNativeWindow(cursorWindow)}; root={DescribeNativeWindow(cursorRoot)}";
+                    IntPtr child = NativeWindowFromPoint(point);
+                    IntPtr root = child != IntPtr.Zero ? NativeGetAncestor(child, DiagGaRoot) : IntPtr.Zero;
+                    cursor = $"point=({point.X},{point.Y}); child={DescribeWindow(child)}; root={DescribeWindow(root)}";
                 }
 
-                DiagWindowPlacement placement = new DiagWindowPlacement
+                NativeWindowPlacement placement = new NativeWindowPlacement
                 {
-                    Length = Marshal.SizeOf<DiagWindowPlacement>(),
+                    Length = Marshal.SizeOf<NativeWindowPlacement>(),
                 };
-                bool hasPlacement = hwnd != IntPtr.Zero && DiagGetWindowPlacement(hwnd, ref placement);
+                bool hasPlacement = hwnd != IntPtr.Zero && NativeGetWindowPlacement(hwnd, ref placement);
 
-                snapshot =
+                line =
                     $"seq={sequence}; time={DateTime.Now:O}; source={source}; {details}; " +
-                    $"hwnd={DescribeNativeWindow(hwnd)}; managedState={WindowState}; managedActive={IsActive}; " +
-                    $"managedVisible={IsVisible}; showInTaskbar={ShowInTaskbar}; " +
-                    $"nativeVisible={(hwnd != IntPtr.Zero && DiagIsWindowVisible(hwnd))}; iconic={(hwnd != IntPtr.Zero && DiagIsIconic(hwnd))}; " +
-                    $"zoomed={(hwnd != IntPtr.Zero && DiagIsZoomed(hwnd))}; owner={DescribeNativeWindow(owner)}; " +
-                    $"style=0x{unchecked((ulong)style):X}; exStyle=0x{unchecked((ulong)exStyle):X}; " +
-                    $"placement={(hasPlacement ? DescribeShowCommand(placement.ShowCommand) : "unavailable")}; " +
-                    $"foreground={DescribeNativeWindow(foreground)}; cursor={cursorDescription}";
+                    $"hwnd={DescribeWindow(hwnd)}; managedState={WindowState}; managedActive={IsActive}; managedVisible={IsVisible}; showInTaskbar={ShowInTaskbar}; " +
+                    $"nativeVisible={(hwnd != IntPtr.Zero && NativeIsWindowVisible(hwnd))}; iconic={(hwnd != IntPtr.Zero && NativeIsIconic(hwnd))}; zoomed={(hwnd != IntPtr.Zero && NativeIsZoomed(hwnd))}; " +
+                    $"owner={DescribeWindow(owner)}; style=0x{unchecked((ulong)style):X}; exStyle=0x{unchecked((ulong)exStyle):X}; " +
+                    $"placement={(hasPlacement ? DescribeShowCommand(placement.ShowCommand) : "unavailable")}; foreground={DescribeWindow(foreground)}; cursor={cursor}";
             }
             catch (Exception ex)
             {
-                snapshot = $"seq={sequence}; time={DateTime.Now:O}; source={source}; snapshotError={ex}";
+                line = $"seq={sequence}; time={DateTime.Now:O}; source={source}; snapshotError={ex}";
             }
 
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try
                 {
-                    lock (TaskbarDiagnosticFileLock)
+                    lock (DiagnosticFileLock)
                     {
-                        File.AppendAllText(path, snapshot + Environment.NewLine, Encoding.UTF8);
+                        File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8);
                     }
                 }
                 catch
                 {
-                    // Diagnostics must never affect application behaviour.
+                    // Logging must never affect application behaviour.
                 }
             });
         }
 
-        private static string DescribeNativeWindow(IntPtr hwnd)
+        private static string DescribeWindow(IntPtr hwnd)
         {
             if (hwnd == IntPtr.Zero)
                 return "0x0";
 
-            string className = GetNativeWindowClassName(hwnd);
-            string processName = "?";
+            var classBuffer = new StringBuilder(256);
+            string className = NativeGetClassName(hwnd, classBuffer, classBuffer.Capacity) > 0 ? classBuffer.ToString() : "?";
             uint processId = 0;
+            string processName = "?";
 
             try
             {
-                DiagGetWindowThreadProcessId(hwnd, out processId);
+                NativeGetWindowThreadProcessId(hwnd, out processId);
                 if (processId != 0)
                 {
                     using Process process = Process.GetProcessById(unchecked((int)processId));
@@ -315,16 +286,10 @@ namespace _1RM.View.Host
             }
             catch
             {
-                // Best-effort diagnostic metadata only.
+                // Best effort only.
             }
 
             return $"0x{hwnd.ToInt64():X}[class={className}; process={processName}; pid={processId}]";
-        }
-
-        private static string GetNativeWindowClassName(IntPtr hwnd)
-        {
-            var buffer = new StringBuilder(256);
-            return DiagGetClassName(hwnd, buffer, buffer.Capacity) > 0 ? buffer.ToString() : "?";
         }
 
         private static int LowWord(long value) => unchecked((ushort)(value & 0xFFFF));
@@ -379,22 +344,18 @@ namespace _1RM.View.Host
             _ => value.ToString(),
         };
 
-        private static IntPtr DiagGetWindowLongPtr(IntPtr hwnd, int index)
-        {
-            return IntPtr.Size == 8
-                ? DiagGetWindowLongPtr64(hwnd, index)
-                : new IntPtr(DiagGetWindowLong32(hwnd, index));
-        }
+        private static IntPtr GetWindowLongPtr(IntPtr hwnd, int index) =>
+            IntPtr.Size == 8 ? NativeGetWindowLongPtr64(hwnd, index) : new IntPtr(NativeGetWindowLong32(hwnd, index));
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct DiagPoint
+        private struct NativePoint
         {
             public int X;
             public int Y;
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct DiagRect
+        private struct NativeRect
         {
             public int Left;
             public int Top;
@@ -403,18 +364,18 @@ namespace _1RM.View.Host
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct DiagWindowPlacement
+        private struct NativeWindowPlacement
         {
             public int Length;
             public int Flags;
             public int ShowCommand;
-            public DiagPoint MinPosition;
-            public DiagPoint MaxPosition;
-            public DiagRect NormalPosition;
+            public NativePoint MinPosition;
+            public NativePoint MaxPosition;
+            public NativeRect NormalPosition;
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct DiagWindowPos
+        private struct NativeWindowPos
         {
             public IntPtr Hwnd;
             public IntPtr HwndInsertAfter;
@@ -425,51 +386,51 @@ namespace _1RM.View.Host
             public uint Flags;
         }
 
-        [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern int DiagRegisterWindowMessage(string message);
+        [DllImport("user32.dll", EntryPoint = "RegisterWindowMessageW", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern int NativeRegisterWindowMessage(string message);
 
         [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]
-        private static extern IntPtr DiagGetForegroundWindow();
+        private static extern IntPtr NativeGetForegroundWindow();
 
         [DllImport("user32.dll", EntryPoint = "GetWindow", SetLastError = true)]
-        private static extern IntPtr DiagGetWindow(IntPtr hwnd, uint command);
+        private static extern IntPtr NativeGetWindow(IntPtr hwnd, uint command);
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
-        private static extern IntPtr DiagGetWindowLongPtr64(IntPtr hwnd, int index);
+        private static extern IntPtr NativeGetWindowLongPtr64(IntPtr hwnd, int index);
 
         [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
-        private static extern int DiagGetWindowLong32(IntPtr hwnd, int index);
+        private static extern int NativeGetWindowLong32(IntPtr hwnd, int index);
 
         [DllImport("user32.dll", EntryPoint = "IsWindowVisible")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool DiagIsWindowVisible(IntPtr hwnd);
+        private static extern bool NativeIsWindowVisible(IntPtr hwnd);
 
         [DllImport("user32.dll", EntryPoint = "IsIconic")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool DiagIsIconic(IntPtr hwnd);
+        private static extern bool NativeIsIconic(IntPtr hwnd);
 
         [DllImport("user32.dll", EntryPoint = "IsZoomed")]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool DiagIsZoomed(IntPtr hwnd);
+        private static extern bool NativeIsZoomed(IntPtr hwnd);
 
         [DllImport("user32.dll", EntryPoint = "GetWindowPlacement", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool DiagGetWindowPlacement(IntPtr hwnd, ref DiagWindowPlacement placement);
+        private static extern bool NativeGetWindowPlacement(IntPtr hwnd, ref NativeWindowPlacement placement);
 
         [DllImport("user32.dll", EntryPoint = "GetCursorPos", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool DiagGetCursorPos(out DiagPoint point);
+        private static extern bool NativeGetCursorPos(out NativePoint point);
 
         [DllImport("user32.dll", EntryPoint = "WindowFromPoint")]
-        private static extern IntPtr DiagWindowFromPoint(DiagPoint point);
+        private static extern IntPtr NativeWindowFromPoint(NativePoint point);
 
         [DllImport("user32.dll", EntryPoint = "GetAncestor")]
-        private static extern IntPtr DiagGetAncestor(IntPtr hwnd, uint flags);
+        private static extern IntPtr NativeGetAncestor(IntPtr hwnd, uint flags);
 
         [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern int DiagGetClassName(IntPtr hwnd, StringBuilder className, int maxCount);
+        private static extern int NativeGetClassName(IntPtr hwnd, StringBuilder className, int maxCount);
 
         [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId", SetLastError = true)]
-        private static extern uint DiagGetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+        private static extern uint NativeGetWindowThreadProcessId(IntPtr hwnd, out uint processId);
     }
 }
