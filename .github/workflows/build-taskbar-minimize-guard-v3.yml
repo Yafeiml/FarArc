@@ -1,0 +1,141 @@
+name: Build taskbar missed-minimize guard v3 x64
+
+on:
+  push:
+    branches:
+      - "fix/win11-25h2-missed-minimize-v3"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taskbar-missed-minimize-v3-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout exact v3 branch and submodules
+        uses: actions/checkout@v4
+        with:
+          ref: fix/win11-25h2-missed-minimize-v3
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Recover and inject database-compatible value from verified official 1.2.1
+        shell: pwsh
+        run: |
+          Write-Host "Selected SDK: $(dotnet --version)"
+
+          $officialUrl = "https://github.com/1Remote/1Remote/releases/download/1.2.1/1Remote-1.2.1-net9-x64.zip"
+          $expectedSha256 = "825ae0d6d6ed45dbb155ed809b976c2a7532578b124b3b55c0cfc6bfa3267411"
+          $officialZip = Join-Path $env:RUNNER_TEMP "1Remote-1.2.1-net9-x64.zip"
+          $officialDir = Join-Path $env:RUNNER_TEMP "official-1Remote-1.2.1"
+          $bundleDir = Join-Path $env:RUNNER_TEMP "official-1Remote-bundle"
+          $decompiled = Join-Path $env:RUNNER_TEMP "Assert.decompiled.cs"
+
+          Invoke-WebRequest -Uri $officialUrl -OutFile $officialZip -UseBasicParsing
+          $actualSha256 = (Get-FileHash $officialZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "Official 1Remote 1.2.1 asset hash mismatch. Expected $expectedSha256, got $actualSha256."
+          }
+
+          Expand-Archive -Path $officialZip -DestinationPath $officialDir -Force
+          $officialExe = Get-ChildItem -Path $officialDir -Recurse -File -Filter "1Remote.exe" | Select-Object -First 1
+          if ($null -eq $officialExe) {
+            throw "1Remote.exe was not found in the verified official release package."
+          }
+
+          dotnet tool install --global sfextract
+          dotnet tool install --global ilspycmd --version 9.1.0.7988
+          $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+
+          New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
+          & sfextract $officialExe.FullName -o $bundleDir
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to extract the verified official .NET single-file bundle."
+          }
+
+          $officialAssembly = Get-ChildItem -Path $bundleDir -Recurse -File -Filter "1Remote.dll" | Select-Object -First 1
+          if ($null -eq $officialAssembly) {
+            throw "The managed 1Remote.dll entry was not found in the verified official bundle."
+          }
+
+          & ilspycmd -t "_1RM.Assert" $officialAssembly.FullName | Set-Content -Path $decompiled -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to inspect the managed assembly from the verified official bundle."
+          }
+
+          $decompiledText = Get-Content $decompiled -Raw
+          $match = [regex]::Match($decompiledText, 'STRING_SALT\s*=\s*"((?:\\.|[^"\\])*)"\s*;')
+          if (-not $match.Success) {
+            throw "The database-compatible value was not found in the verified official assembly."
+          }
+
+          $saltLiteral = $match.Groups[1].Value
+          if ([string]::IsNullOrWhiteSpace($saltLiteral) -or $saltLiteral.Contains("REPLACE_ME_WITH_SALT")) {
+            throw "The recovered database-compatible value is invalid."
+          }
+
+          Write-Output "::add-mask::$saltLiteral"
+
+          $assertPath = Join-Path $env:GITHUB_WORKSPACE "Ui\Assert.cs"
+          $assertText = Get-Content $assertPath -Raw
+          $placeholder = '"===REPLACE_ME_WITH_SALT==="'
+          $replacement = '"' + $saltLiteral + '"'
+          if (-not $assertText.Contains($placeholder)) {
+            throw "The source encryption placeholder was not found."
+          }
+
+          Set-Content -Path $assertPath -Value $assertText.Replace($placeholder, $replacement) -Encoding UTF8
+          if ((Get-Content $assertPath -Raw).Contains("===REPLACE_ME_WITH_SALT===")) {
+            throw "The database-compatible value was not injected into the build source."
+          }
+
+          Remove-Item $officialZip -Force
+          Remove-Item $officialDir -Recurse -Force
+          Remove-Item $bundleDir -Recurse -Force
+          Remove-Item $decompiled -Force
+          Write-Host "Verified database compatibility data injected without disclosure."
+
+      - name: Restore NuGet packages for win-x64
+        shell: pwsh
+        run: dotnet restore .\Ui\Ui.csproj -r win-x64 -p:Configuration=Release
+
+      - name: Publish using the official 1.2.1 x64 profile
+        shell: pwsh
+        run: dotnet publish .\Ui\Ui.csproj -p:PublishProfile=.\Ui\Properties\PublishProfiles\x64-single.file.application.pubxml --no-restore
+
+      - name: Create v3 ZIP
+        id: package
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE "Ui\bin\Release\net9.0-windows\publish\win-x64"
+          if (-not (Test-Path $publishDir)) {
+            throw "Publish directory not found: $publishDir"
+          }
+
+          $sourceSha = (git rev-parse --short=8 HEAD).Trim()
+          $zipName = "1Remote-1.2.1-win-x64-taskbar-minimize-guard-v3-$sourceSha.zip"
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE $zipName
+          Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
+
+      - name: Upload v3 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1Remote-1.2.1-win-x64-taskbar-minimize-guard-v3
+          path: ${{ steps.package.outputs.zip_path }}
+          if-no-files-found: error
+          retention-days: 14
