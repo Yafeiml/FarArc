@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - "fix/win11-25h2-taskbar-registration"
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       publish_release:
