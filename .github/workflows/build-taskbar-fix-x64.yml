@@ -1,0 +1,87 @@
+name: Build Win11 taskbar fix x64
+
+on:
+  push:
+    branches:
+      - "fix/win11-25h2-taskbar-registration"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: taskbar-fix-x64-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-publish:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Restore NuGet packages
+        shell: pwsh
+        run: dotnet restore .\Ui\Ui.csproj -p:Configuration=Release
+
+      - name: Publish self-contained win-x64 build
+        shell: pwsh
+        run: dotnet publish .\Ui\Ui.csproj -p:PublishProfile=.\Ui\Properties\PublishProfiles\x64-net90-self-contained.pubxml --no-restore
+
+      - name: Create ZIP package
+        id: package
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE "Ui\bin\Release\net9.0-windows-self-contained\publish\win-x64"
+          if (-not (Test-Path $publishDir)) {
+            throw "Publish directory not found: $publishDir"
+          }
+
+          $shortSha = "${{ github.sha }}".Substring(0, 8)
+          $zipName = "1Remote-win-x64-taskbarfix-$shortSha.zip"
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE $zipName
+
+          if (Test-Path $zipPath) {
+            Remove-Item $zipPath -Force
+          }
+
+          Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
+          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1Remote-win-x64-taskbarfix
+          path: ${{ steps.package.outputs.zip_path }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: taskbar-fix-${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          name: 1Remote Win11 25H2 taskbar fix build ${{ github.run_number }}
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            Experimental unsigned x64 build for diagnosing and repairing the disappearing remote-session taskbar button on Windows 11 25H2, including compatibility handling for replacement taskbars such as StartAllBack.
+
+            Source branch: `${{ github.ref_name }}`
+            Commit: `${{ github.sha }}`
+          files: ${{ steps.package.outputs.zip_path }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
