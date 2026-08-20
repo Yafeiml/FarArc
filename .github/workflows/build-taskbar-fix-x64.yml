@@ -1,35 +1,27 @@
-name: Build Win11 taskbar fix x64
+name: Build taskbar diagnostic 1.2.1 x64
 
 on:
   push:
     branches:
       - "fix/win11-25h2-taskbar-registration"
-  pull_request:
-    branches:
-      - main
   workflow_dispatch:
-    inputs:
-      publish_release:
-        description: "Publish a public GitHub prerelease"
-        required: false
-        type: boolean
-        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: taskbar-fix-x64-${{ github.ref }}
+  group: taskbar-diagnostic-121-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  build-and-publish:
+  build:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout repository and submodules
+      - name: Checkout exact 1.2.1 diagnostic branch and submodules
         uses: actions/checkout@v4
         with:
+          ref: diagnostic/win11-25h2-taskbar-1.2.1
           fetch-depth: 0
           submodules: recursive
 
@@ -41,7 +33,7 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Recover and inject database-compatible build value from official 1.2.1
+      - name: Recover and inject database-compatible value from verified official 1.2.1
         shell: pwsh
         run: |
           $officialUrl = "https://github.com/1Remote/1Remote/releases/download/1.2.1/1Remote-1.2.1-net9-x64.zip"
@@ -94,8 +86,6 @@ jobs:
             throw "The recovered database-compatible value is invalid."
           }
 
-          # Mask before the value is used anywhere else. It is never printed,
-          # committed, uploaded, or persisted beyond this ephemeral runner.
           Write-Output "::add-mask::$saltLiteral"
 
           $assertPath = Join-Path $env:GITHUB_WORKSPACE "Ui\Assert.cs"
@@ -106,11 +96,8 @@ jobs:
             throw "The source encryption placeholder was not found."
           }
 
-          $assertText = $assertText.Replace($placeholder, $replacement)
-          Set-Content -Path $assertPath -Value $assertText -Encoding UTF8
-
-          $verificationText = Get-Content $assertPath -Raw
-          if ($verificationText.Contains("===REPLACE_ME_WITH_SALT===")) {
+          Set-Content -Path $assertPath -Value $assertText.Replace($placeholder, $replacement) -Encoding UTF8
+          if ((Get-Content $assertPath -Raw).Contains("===REPLACE_ME_WITH_SALT===")) {
             throw "The database-compatible value was not injected into the build source."
           }
 
@@ -118,63 +105,35 @@ jobs:
           Remove-Item $officialDir -Recurse -Force
           Remove-Item $bundleDir -Recurse -Force
           Remove-Item $decompiled -Force
-          Write-Host "Verified official database compatibility data was injected without disclosure."
+          Write-Host "Verified database compatibility data injected without disclosure."
 
       - name: Restore NuGet packages for win-x64
         shell: pwsh
         run: dotnet restore .\Ui\Ui.csproj -r win-x64 -p:Configuration=Release
 
-      - name: Publish self-contained win-x64 build
+      - name: Publish using the official 1.2.1 x64 profile
         shell: pwsh
-        run: dotnet publish .\Ui\Ui.csproj -p:PublishProfile=.\Ui\Properties\PublishProfiles\x64-net90-self-contained.pubxml --no-restore
+        run: dotnet publish .\Ui\Ui.csproj -p:PublishProfile=.\Ui\Properties\PublishProfiles\x64-single.file.application.pubxml --no-restore
 
-      - name: Create ZIP package
+      - name: Create diagnostic ZIP
         id: package
         shell: pwsh
         run: |
-          $publishDir = Join-Path $env:GITHUB_WORKSPACE "Ui\bin\Release\net9.0-windows-self-contained\publish\win-x64"
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE "Ui\bin\Release\net9.0-windows\publish\win-x64"
           if (-not (Test-Path $publishDir)) {
             throw "Publish directory not found: $publishDir"
           }
 
-          $shortSha = "${{ github.sha }}".Substring(0, 8)
-          $zipName = "1Remote-win-x64-taskbarfix-v2-$shortSha.zip"
+          $sourceSha = (git rev-parse --short=8 HEAD).Trim()
+          $zipName = "1Remote-1.2.1-win-x64-taskbar-diagnostic-$sourceSha.zip"
           $zipPath = Join-Path $env:GITHUB_WORKSPACE $zipName
-
-          if (Test-Path $zipPath) {
-            Remove-Item $zipPath -Force
-          }
-
           Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
-          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
           "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
 
-      - name: Upload workflow artifact
+      - name: Upload diagnostic artifact
         uses: actions/upload-artifact@v4
         with:
-          name: 1Remote-win-x64-taskbarfix-v2
+          name: 1Remote-1.2.1-win-x64-taskbar-diagnostic
           path: ${{ steps.package.outputs.zip_path }}
           if-no-files-found: error
-          retention-days: 30
-
-      - name: Publish GitHub prerelease
-        if: github.event_name == 'workflow_dispatch' && inputs.publish_release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: taskbar-fix-v2-${{ github.run_number }}
-          target_commitish: ${{ github.sha }}
-          name: 1Remote Win11 25H2 taskbar fix v2 build ${{ github.run_number }}
-          prerelease: true
-          generate_release_notes: false
-          body: |
-            Experimental unsigned x64 build for the disappearing remote-session taskbar indicator on Windows 11 25H2 and replacement taskbars such as StartAllBack.
-
-            Version 2 no longer calls `ActivateTab`, does not re-register during normal activation, and repairs only after a narrowly detected failed shell-originated minimize transition or after Explorer rebuilds the taskbar.
-
-            The build recovers the database-compatible value from the pinned, SHA-256-verified official 1Remote 1.2.1 package inside the ephemeral Actions runner. The value is masked before use and is not committed or uploaded separately.
-
-            Source branch: `${{ github.ref_name }}`
-            Commit: `${{ github.sha }}`
-          files: ${{ steps.package.outputs.zip_path }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          retention-days: 14
