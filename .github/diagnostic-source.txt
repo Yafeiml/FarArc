@@ -1,0 +1,2 @@
+Observation-only diagnostic source: diagnostic/win11-25h2-taskbar-1.2.1
+Pinned SDK: 9.0.317
