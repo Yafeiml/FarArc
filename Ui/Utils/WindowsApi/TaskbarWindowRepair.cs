@@ -5,13 +5,13 @@ using Shawn.Utils;
 namespace _1RM.Utils.WindowsApi
 {
     /// <summary>
-    /// Repairs the association between a top-level HWND and the Windows taskbar.
+    /// Re-registers an existing top-level HWND with the taskbar without changing
+    /// the window's activation or minimization state.
     ///
-    /// WPF's ShowInTaskbar dependency property can still be true while a replacement
-    /// taskbar implementation has lost its internal task item for the HWND. Reassigning
-    /// ShowInTaskbar = true is then a no-op, because no dependency-property change occurs.
-    /// ITaskbarList.AddTab explicitly asks the shell/taskbar implementation to register
-    /// the window again without hiding or recreating the WPF window.
+    /// This method must not participate in the normal Activated/Deactivated flow:
+    /// repeated AddTab/ActivateTab calls during a taskbar click can alter the
+    /// taskbar button's native click-to-minimize behaviour. Call it only after a
+    /// narrowly detected failed taskbar transition or after the taskbar is rebuilt.
     /// </summary>
     internal static class TaskbarWindowRepair
     {
@@ -20,7 +20,7 @@ namespace _1RM.Utils.WindowsApi
         private const long WsExToolWindow = 0x00000080L;
         private const long WsExAppWindow = 0x00040000L;
 
-        public static bool TryRegister(IntPtr hwnd, bool activate, string reason)
+        public static bool TryRegister(IntPtr hwnd, string reason)
         {
             if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
             {
@@ -37,7 +37,6 @@ namespace _1RM.Utils.WindowsApi
             object? taskbarObject = null;
             int hrInit = unchecked((int)0x80004005);
             int hrAdd = unchecked((int)0x80004005);
-            int hrActivate = 0;
 
             try
             {
@@ -47,21 +46,19 @@ namespace _1RM.Utils.WindowsApi
                 hrInit = taskbar.HrInit();
                 if (hrInit >= 0)
                 {
+                    // Deliberately do not call ActivateTab or SetActiveAlt here.
+                    // Those APIs affect the taskbar's active-item bookkeeping and
+                    // can break the normal "click active button to minimize" path.
                     hrAdd = taskbar.AddTab(hwnd);
-                    if (hrAdd >= 0 && activate)
-                    {
-                        hrActivate = taskbar.ActivateTab(hwnd);
-                    }
                 }
 
                 SimpleLogHelper.DebugInfo(
                     $"Taskbar repair ({reason}): hwnd=0x{hwnd.ToInt64():X}, visible={visible}, " +
                     $"owner=0x{owner.ToInt64():X}, exStyle=0x{exStyle:X}, " +
                     $"WS_EX_APPWINDOW={hasAppWindow}, WS_EX_TOOLWINDOW={hasToolWindow}, " +
-                    $"HrInit={FormatHResult(hrInit)}, AddTab={FormatHResult(hrAdd)}, " +
-                    $"ActivateTab={(activate ? FormatHResult(hrActivate) : "not-requested")}");
+                    $"HrInit={FormatHResult(hrInit)}, AddTab={FormatHResult(hrAdd)}");
 
-                return hrInit >= 0 && hrAdd >= 0 && (!activate || hrActivate >= 0);
+                return hrInit >= 0 && hrAdd >= 0;
             }
             catch (Exception ex)
             {
