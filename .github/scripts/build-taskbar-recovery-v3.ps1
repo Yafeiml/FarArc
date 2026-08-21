@@ -1,0 +1,225 @@
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+
+Write-Host "Building 1Remote 1.2.1 taskbar recovery v3"
+Write-Host "SDK: $(dotnet --version)"
+
+$workspace = $env:GITHUB_WORKSPACE
+if ([string]::IsNullOrWhiteSpace($workspace)) {
+    $workspace = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+}
+
+$sourcePath = Join-Path $workspace 'Ui\View\Host\TabWindowView.taskbar_recovery_v3.cs'
+if (-not (Test-Path $sourcePath)) {
+    throw "Taskbar recovery v3 source file was not found: $sourcePath"
+}
+
+$source = Get-Content $sourcePath -Raw
+$requiredSource = @(
+    'TaskbarRecoveryV3-reactivation-45ms',
+    'REACTIVATED_NON_MINIMIZED',
+    'RECOVERY_SEND_SC_MINIMIZE',
+    'SYNTHETIC_SC_MINIMIZE',
+    'NativeSendMessage',
+    'EntryPoint = "SendMessageW"',
+    'restoreMessages=untouched'
+)
+foreach ($fragment in $requiredSource) {
+    if (-not $source.Contains($fragment)) {
+        throw "Required recovery-v3 source fragment is missing: $fragment"
+    }
+}
+
+$forbiddenSource = @(
+    'GuardGetCursorPos',
+    'SHGetPropertyStoreForWindow',
+    'interface ITaskbarList',
+    'ShowInTaskbar =',
+    'SetCurrentProcessExplicitAppUserModelID',
+    'handled = true'
+)
+foreach ($fragment in $forbiddenSource) {
+    if ($source.Contains($fragment)) {
+        throw "Forbidden legacy/taskbar mutation fragment is present: $fragment"
+    }
+}
+Write-Host 'Recovery-v3 source validation passed.'
+
+$officialUrl = 'https://github.com/1Remote/1Remote/releases/download/1.2.1/1Remote-1.2.1-net9-x64.zip'
+$expectedOfficialSha256 = '825ae0d6d6ed45dbb155ed809b976c2a7532578b124b3b55c0cfc6bfa3267411'
+$officialZip = Join-Path $env:RUNNER_TEMP '1Remote-1.2.1-net9-x64.zip'
+$officialDir = Join-Path $env:RUNNER_TEMP 'official-1Remote-1.2.1'
+$bundleDir = Join-Path $env:RUNNER_TEMP 'official-1Remote-bundle'
+$decompiledAssert = Join-Path $env:RUNNER_TEMP 'Assert.decompiled.cs'
+
+Invoke-WebRequest -Uri $officialUrl -OutFile $officialZip -UseBasicParsing
+$actualOfficialSha256 = (Get-FileHash $officialZip -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualOfficialSha256 -ne $expectedOfficialSha256) {
+    throw "Official 1Remote 1.2.1 hash mismatch. Expected $expectedOfficialSha256, got $actualOfficialSha256."
+}
+
+Expand-Archive -Path $officialZip -DestinationPath $officialDir -Force
+$officialExe = Get-ChildItem -Path $officialDir -Recurse -File -Filter '1Remote.exe' | Select-Object -First 1
+if ($null -eq $officialExe) {
+    throw '1Remote.exe was not found in the verified official release package.'
+}
+
+dotnet tool install --global sfextract
+if ($LASTEXITCODE -ne 0) { throw 'Failed to install sfextract.' }
+dotnet tool install --global ilspycmd --version 9.1.0.7988
+if ($LASTEXITCODE -ne 0) { throw 'Failed to install ilspycmd.' }
+$env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+
+New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
+& sfextract $officialExe.FullName -o $bundleDir
+if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to extract the verified official .NET single-file bundle.'
+}
+
+$officialAssembly = Get-ChildItem -Path $bundleDir -Recurse -File -Filter '1Remote.dll' | Select-Object -First 1
+if ($null -eq $officialAssembly) {
+    throw 'The managed 1Remote.dll entry was not found in the verified official bundle.'
+}
+
+& ilspycmd -t '_1RM.Assert' $officialAssembly.FullName | Set-Content -Path $decompiledAssert -Encoding UTF8
+if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to inspect the managed assembly from the verified official bundle.'
+}
+
+$decompiledText = Get-Content $decompiledAssert -Raw
+$match = [regex]::Match($decompiledText, 'STRING_SALT\s*=\s*"((?:\\.|[^"\\])*)"\s*;')
+if (-not $match.Success) {
+    throw 'The database-compatible value was not found in the verified official assembly.'
+}
+
+$saltLiteral = $match.Groups[1].Value
+if ([string]::IsNullOrWhiteSpace($saltLiteral) -or $saltLiteral.Contains('REPLACE_ME_WITH_SALT')) {
+    throw 'The recovered database-compatible value is invalid.'
+}
+Write-Output "::add-mask::$saltLiteral"
+
+$assertPath = Join-Path $workspace 'Ui\Assert.cs'
+$assertText = Get-Content $assertPath -Raw
+$placeholder = '"===REPLACE_ME_WITH_SALT==="'
+$replacement = '"' + $saltLiteral + '"'
+if (-not $assertText.Contains($placeholder)) {
+    throw 'The source encryption placeholder was not found.'
+}
+Set-Content -Path $assertPath -Value $assertText.Replace($placeholder, $replacement) -Encoding UTF8
+if ((Get-Content $assertPath -Raw).Contains('===REPLACE_ME_WITH_SALT===')) {
+    throw 'The database-compatible value was not injected into the source.'
+}
+
+Remove-Item $officialZip -Force
+Remove-Item $officialDir -Recurse -Force
+Remove-Item $bundleDir -Recurse -Force
+Remove-Item $decompiledAssert -Force
+Write-Host 'Verified official database compatibility value injected.'
+
+Push-Location $workspace
+try {
+    dotnet restore .\Ui\Ui.csproj -r win-x64 -p:Configuration=Release
+    if ($LASTEXITCODE -ne 0) { throw 'dotnet restore failed.' }
+
+    dotnet publish .\Ui\Ui.csproj -p:PublishProfile=.\Ui\Properties\PublishProfiles\x64-single.file.application.pubxml --no-restore
+    if ($LASTEXITCODE -ne 0) { throw 'dotnet publish failed.' }
+}
+finally {
+    Pop-Location
+}
+
+$publishDir = Join-Path $workspace 'Ui\bin\Release\net9.0-windows\publish\win-x64'
+$exePath = Join-Path $publishDir '1Remote.exe'
+if (-not (Test-Path $exePath)) {
+    throw "Published 1Remote.exe was not found: $exePath"
+}
+if ((Get-Item $exePath).Length -lt 10000000) {
+    throw 'Published 1Remote.exe is unexpectedly small.'
+}
+
+$verifyBundle = Join-Path $env:RUNNER_TEMP 'recovery-v3-compiled-bundle'
+$verifySource = Join-Path $env:RUNNER_TEMP 'TabWindowView.recovery-v3.decompiled.cs'
+New-Item -ItemType Directory -Path $verifyBundle -Force | Out-Null
+& sfextract $exePath -o $verifyBundle
+if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to extract the compiled single-file EXE.'
+}
+$compiledAssembly = Get-ChildItem -Path $verifyBundle -Recurse -File -Filter '1Remote.dll' | Select-Object -First 1
+if ($null -eq $compiledAssembly) {
+    throw 'The compiled 1Remote.dll entry was not found.'
+}
+& ilspycmd -t '_1RM.View.Host.TabWindowView' $compiledAssembly.FullName | Set-Content -Path $verifySource -Encoding UTF8
+if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to decompile the compiled TabWindowView type.'
+}
+
+$compiled = Get-Content $verifySource -Raw
+$requiredCompiled = @(
+    'TaskbarRecoveryV3-reactivation-45ms',
+    'REACTIVATED_NON_MINIMIZED',
+    'RECOVERY_SEND_SC_MINIMIZE',
+    'SYNTHETIC_SC_MINIMIZE',
+    'NativeSendMessage'
+)
+foreach ($fragment in $requiredCompiled) {
+    if (-not $compiled.Contains($fragment)) {
+        throw "Compiled EXE is missing recovery-v3 fragment: $fragment"
+    }
+}
+
+$forbiddenCompiled = @(
+    'TaskbarTraceV2-',
+    'SHGetPropertyStoreForWindow',
+    'TaskbarWindowRepair'
+)
+foreach ($fragment in $forbiddenCompiled) {
+    if ($compiled.Contains($fragment)) {
+        throw "Compiled EXE contains a removed legacy experiment: $fragment"
+    }
+}
+Remove-Item $verifyBundle -Recurse -Force
+Remove-Item $verifySource -Force
+Write-Host 'Compiled EXE verification passed.'
+
+$sourceSha = (git -C $workspace rev-parse HEAD).Trim()
+$readmePath = Join-Path $publishDir 'README-Taskbar-Recovery-V3.txt'
+$readmeLines = @(
+    '1Remote 1.2.1 - Windows 11 25H2 taskbar recovery v3',
+    '',
+    "Source commit: $sourceSha",
+    'Official baseline commit: a2a81be532f7da9016b77657009ccfe09574be9f',
+    "Official input SHA-256: $expectedOfficialSha256",
+    '',
+    'Recovery logic:',
+    '- Normal Explorer/StartAllBack SC_MINIMIZE messages are untouched.',
+    '- Arm only when an active session window loses activation over MSTaskListWClass.',
+    '- Recover only if the same window reactivates while still non-minimized and no SC_MINIMIZE arrived.',
+    '- After a 45 ms late-message grace period, send the normal native SC_MINIMIZE command.',
+    '- SC_RESTORE is never blocked or consumed.',
+    '- No AppUserModelID, ITaskbarList, ShowInTaskbar, owner, or style mutation.',
+    '',
+    'Trace:',
+    '- Primary: application locality .logs\TaskbarRecoveryV3-<PID>-<timestamp>.log',
+    '- Fallback: %TEMP%\1Remote-TaskbarRecoveryV3',
+    '',
+    'Install into a new directory after fully exiting 1Remote. Back up existing data first.'
+)
+Set-Content -Path $readmePath -Value $readmeLines -Encoding UTF8
+
+$hashPath = Join-Path $publishDir 'SHA256SUMS.txt'
+Get-ChildItem -Path $publishDir -File |
+    Where-Object { $_.Name -ne 'SHA256SUMS.txt' } |
+    Sort-Object Name |
+    ForEach-Object {
+        $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        "$hash  $($_.Name)"
+    } | Set-Content -Path $hashPath -Encoding ASCII
+
+$zipPath = Join-Path $workspace '1Remote-1.2.1-win-x64-Win11-25H2-taskbar-recovery-v3.zip'
+if (Test-Path $zipPath) {
+    Remove-Item $zipPath -Force
+}
+Compress-Archive -Path (Join-Path $publishDir '*') -DestinationPath $zipPath -CompressionLevel Optimal
+$zipHash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+Write-Host "Recovery-v3 ZIP: $zipPath"
+Write-Host "Recovery-v3 ZIP SHA-256: $zipHash"
