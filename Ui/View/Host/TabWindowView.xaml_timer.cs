@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using System.Timers;
 using System;
 using System.Windows;
@@ -44,6 +44,16 @@ namespace _1RM.View.Host
             _timer4CheckForegroundWindow.Stop();
             try
             {
+                // Do not let 1Remote's own 100 ms focus correction race Explorer or
+                // StartAllBack while an active taskbar-button click is being resolved.
+                // The timestamp is written by the window-message state machine.
+                if (DateTime.UtcNow.Ticks <
+                    System.Threading.Interlocked.Read(
+                        ref _taskbarFocusSuppressedUntilUtcTicks))
+                {
+                    return;
+                }
+
                 RunForRdpV2();
                 RunForIntegrate();
             }
