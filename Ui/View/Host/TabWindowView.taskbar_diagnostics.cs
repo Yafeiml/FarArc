@@ -1,436 +1,605 @@
 using System;
-using System.Diagnostics;
-using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows;
 using System.Windows.Interop;
-using _1RM.Service;
+using System.Windows.Threading;
+using Shawn.Utils;
 
 namespace _1RM.View.Host
 {
     /// <summary>
-    /// Observation-only instrumentation for the Windows 11 taskbar issue.
-    /// It never calls ITaskbarList, ShowWindow, Activate, SetForegroundWindow,
-    /// changes ShowInTaskbar, changes WindowState, or marks a Win32 message handled.
+    /// Windows 11 25H2 taskbar compatibility for the remote-session window.
+    ///
+    /// The fix has three deliberately narrow parts:
+    /// 1. assign a stable window-level AppUserModelID before the taskbar button is created;
+    /// 2. pause 1Remote's periodic protocol-focus correction while Explorer/StartAllBack
+    ///    is processing a taskbar click;
+    /// 3. complete the expected minimize only when the exact recorded failure sequence
+    ///    occurs (WA_INACTIVE over the task list -> immediate WA_ACTIVE, with no native
+    ///    SC_MINIMIZE/WM_SIZE(SIZE_MINIMIZED)).
+    ///
+    /// It does not call ITaskbarList, SetForegroundWindow, Activate, Show/Hide, toggle
+    /// ShowInTaskbar, change ownership, or consume native messages.
     /// </summary>
     public partial class TabWindowView
     {
-        private const int DiagGwlStyle = -16;
-        private const int DiagGwlExStyle = -20;
-        private const uint DiagGwOwner = 4;
-        private const uint DiagGaRoot = 2;
+        private const string TaskbarAppUserModelId = "1Remote.RemoteSession";
 
-        private const int WmSize = 0x0005;
-        private const int WmActivate = 0x0006;
-        private const int WmSetFocus = 0x0007;
-        private const int WmKillFocus = 0x0008;
-        private const int WmShowWindow = 0x0018;
-        private const int WmActivateApp = 0x001C;
-        private const int WmMouseActivate = 0x0021;
-        private const int WmWindowPosChanged = 0x0047;
-        private const int WmStyleChanging = 0x007C;
-        private const int WmStyleChanged = 0x007D;
-        private const int WmNcActivate = 0x0086;
-        private const int WmSysCommand = 0x0112;
+        private const int TaskbarWmSize = 0x0005;
+        private const int TaskbarWmActivate = 0x0006;
+        private const int TaskbarWmSysCommand = 0x0112;
 
-        private static readonly object DiagnosticFileLock = new object();
-        private static long _diagnosticSequence;
-        private static readonly int TaskbarCreatedMessage = NativeRegisterWindowMessage("TaskbarCreated");
-        private static readonly int TaskbarButtonCreatedMessage = NativeRegisterWindowMessage("TaskbarButtonCreated");
+        private const int TaskbarWaInactive = 0;
+        private const int TaskbarWaActive = 1;
+        private const int TaskbarWaClickActive = 2;
+        private const int TaskbarSizeMinimized = 1;
+        private const int TaskbarScMinimize = 0xF020;
 
-        private HwndSource? _diagnosticHwndSource;
-        private string? _diagnosticLogPath;
+        private const uint TaskbarGaRoot = 2;
+        private const int TaskbarCompletionDelayMilliseconds = 260;
+        private const int TaskbarFocusSuppressionMilliseconds = 750;
+
+        private static readonly int TaskbarCreatedMessage =
+            TaskbarRegisterWindowMessage("TaskbarCreated");
+
+        private static readonly PropertyKey AppUserModelIdKey = new PropertyKey(
+            new Guid("9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"),
+            5);
+
+        private HwndSource? _taskbarFixHwndSource;
+        private DispatcherTimer? _taskbarFixTimer;
+        private IntPtr _taskbarFixHwnd = IntPtr.Zero;
+        private bool _taskbarFixDisabled;
+        private bool _taskbarClickCandidate;
+        private bool _taskbarClickReactivated;
+        private DateTime _taskbarClickCandidateStartedUtc = DateTime.MinValue;
+
+        // Read by TabWindowView.xaml_timer.cs from its 100 ms background timer.
+        // Interlocked access keeps the cross-thread hand-off atomic.
+        private long _taskbarFocusSuppressedUntilUtcTicks;
 
         protected override void OnSourceInitialized(EventArgs e)
         {
             base.OnSourceInitialized(e);
 
-            _myHandle = new WindowInteropHelper(this).Handle;
-            InitializeDiagnosticLogPath();
+            _taskbarFixHwnd = new WindowInteropHelper(this).Handle;
+            _myHandle = _taskbarFixHwnd;
 
-            _diagnosticHwndSource = HwndSource.FromHwnd(_myHandle);
-            _diagnosticHwndSource?.AddHook(DiagnosticWndProc);
+            TrySetWindowAppUserModelId(_taskbarFixHwnd, TaskbarAppUserModelId);
 
-            Activated += DiagnosticOnActivated;
-            Deactivated += DiagnosticOnDeactivated;
-            StateChanged += DiagnosticOnStateChanged;
-            IsVisibleChanged += DiagnosticOnVisibilityChanged;
-            Closed += DiagnosticOnClosed;
+            try
+            {
+                _taskbarFixHwndSource = HwndSource.FromHwnd(_taskbarFixHwnd);
+                _taskbarFixHwndSource?.AddHook(TaskbarFixWndProc);
 
-            WriteDiagnostic("EVENT SourceInitialized", string.Empty);
+                _taskbarFixTimer = new DispatcherTimer(
+                    DispatcherPriority.Background,
+                    Dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(TaskbarCompletionDelayMilliseconds),
+                };
+                _taskbarFixTimer.Tick += TaskbarFixTimerOnTick;
+
+                Closed += TaskbarFixOnClosed;
+
+                SimpleLogHelper.DebugInfo(
+                    $"Taskbar final fix initialized: hwnd=0x{_taskbarFixHwnd.ToInt64():X}, " +
+                    $"AppUserModelID={TaskbarAppUserModelId}");
+            }
+            catch (Exception ex)
+            {
+                DisableTaskbarFix("initialization failed", ex);
+            }
         }
 
-        private void InitializeDiagnosticLogPath()
+        private IntPtr TaskbarFixWndProc(
+            IntPtr hwnd,
+            int msg,
+            IntPtr wParam,
+            IntPtr lParam,
+            ref bool handled)
         {
-            try
+            if (_taskbarFixDisabled)
             {
-                string directory = Path.Combine(AppPathHelper.Instance.BaseDirPathForLocality, ".logs");
-                Directory.CreateDirectory(directory);
-                _diagnosticLogPath = Path.Combine(directory, $"TaskbarDiagnostics-{Environment.ProcessId}.log");
-            }
-            catch
-            {
-                _diagnosticLogPath = Path.Combine(Path.GetTempPath(), $"1Remote-TaskbarDiagnostics-{Environment.ProcessId}.log");
+                return IntPtr.Zero;
             }
 
             try
             {
-                string header =
-                    $"# 1Remote 1.2.1 taskbar diagnostics — observation only{Environment.NewLine}" +
-                    $"# PID={Environment.ProcessId}; OS={Environment.OSVersion}; Is64Bit={Environment.Is64BitProcess}; Exe={Environment.ProcessPath}{Environment.NewLine}" +
-                    $"# This instrumentation does not modify taskbar registration, activation, window state, styles, or ownership.{Environment.NewLine}";
-                lock (DiagnosticFileLock)
+                if (TaskbarCreatedMessage != 0 && msg == TaskbarCreatedMessage)
                 {
-                    File.AppendAllText(_diagnosticLogPath, header, Encoding.UTF8);
+                    // Explorer has rebuilt its taskbar. Re-setting the same window
+                    // property asks the shell to rebuild identity from the HWND
+                    // without manipulating taskbar tabs or activation state.
+                    Dispatcher.BeginInvoke(
+                        DispatcherPriority.Background,
+                        new Action(() =>
+                        {
+                            if (!IsClosed && _taskbarFixHwnd != IntPtr.Zero)
+                            {
+                                TrySetWindowAppUserModelId(
+                                    _taskbarFixHwnd,
+                                    TaskbarAppUserModelId);
+                            }
+                        }));
+
+                    return IntPtr.Zero;
+                }
+
+                switch (msg)
+                {
+                    case TaskbarWmActivate:
+                    {
+                        int activationState = TaskbarLowWord(wParam);
+                        bool minimized = TaskbarHighWord(wParam) != 0;
+
+                        if (activationState == TaskbarWaInactive)
+                        {
+                            TryArmTaskbarClickCandidate(hwnd, minimized, lParam);
+                        }
+                        else if ((activationState == TaskbarWaActive ||
+                                  activationState == TaskbarWaClickActive) &&
+                                 _taskbarClickCandidate &&
+                                 !minimized &&
+                                 !TaskbarIsIconic(hwnd))
+                        {
+                            _taskbarClickReactivated = true;
+                        }
+
+                        break;
+                    }
+
+                    case TaskbarWmSysCommand:
+                    {
+                        int command = unchecked((int)(wParam.ToInt64() & 0xFFF0L));
+                        if (command == TaskbarScMinimize)
+                        {
+                            ClearTaskbarClickCandidate();
+                        }
+
+                        break;
+                    }
+
+                    case TaskbarWmSize:
+                    {
+                        if (unchecked((int)wParam.ToInt64()) == TaskbarSizeMinimized)
+                        {
+                            ClearTaskbarClickCandidate();
+                        }
+
+                        break;
+                    }
                 }
             }
-            catch
+            catch (Exception ex)
             {
-                // Logging must never affect application behaviour.
-            }
-        }
-
-        private void DiagnosticOnActivated(object? sender, EventArgs e) =>
-            WriteDiagnostic("EVENT Activated", string.Empty);
-
-        private void DiagnosticOnDeactivated(object? sender, EventArgs e) =>
-            WriteDiagnostic("EVENT Deactivated", string.Empty);
-
-        private void DiagnosticOnStateChanged(object? sender, EventArgs e) =>
-            WriteDiagnostic("EVENT StateChanged", $"newManagedState={WindowState}");
-
-        private void DiagnosticOnVisibilityChanged(object sender, DependencyPropertyChangedEventArgs e) =>
-            WriteDiagnostic("EVENT IsVisibleChanged", $"old={e.OldValue}; new={e.NewValue}");
-
-        private void DiagnosticOnClosed(object? sender, EventArgs e)
-        {
-            WriteDiagnostic("EVENT Closed", string.Empty);
-
-            if (_diagnosticHwndSource != null)
-            {
-                _diagnosticHwndSource.RemoveHook(DiagnosticWndProc);
-                _diagnosticHwndSource = null;
+                // A native window hook must never be allowed to tear down the WPF
+                // dispatcher. Fail closed and leave normal 1Remote behaviour intact.
+                DisableTaskbarFix($"WndProc failed for message 0x{msg:X4}", ex);
             }
 
-            Activated -= DiagnosticOnActivated;
-            Deactivated -= DiagnosticOnDeactivated;
-            StateChanged -= DiagnosticOnStateChanged;
-            IsVisibleChanged -= DiagnosticOnVisibilityChanged;
-            Closed -= DiagnosticOnClosed;
-        }
-
-        private IntPtr DiagnosticWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
-        {
-            string? name = GetMessageName(msg);
-            if (name != null)
-            {
-                WriteDiagnostic("MSG " + name, DescribeMessage(msg, wParam, lParam));
-            }
-
-            // Never set handled: this build only observes messages.
+            // Observation/compatibility only. Never consume a native message.
             return IntPtr.Zero;
         }
 
-        private static string? GetMessageName(int msg)
+        private void TryArmTaskbarClickCandidate(
+            IntPtr hwnd,
+            bool minimized,
+            IntPtr otherWindow)
         {
-            if (TaskbarCreatedMessage != 0 && msg == TaskbarCreatedMessage)
-                return "TaskbarCreated";
-            if (TaskbarButtonCreatedMessage != 0 && msg == TaskbarButtonCreatedMessage)
-                return "TaskbarButtonCreated";
-
-            return msg switch
+            if (_taskbarFixTimer == null ||
+                hwnd == IntPtr.Zero ||
+                minimized ||
+                otherWindow != IntPtr.Zero ||
+                !IsLoaded ||
+                !IsVisible ||
+                !IsActive ||
+                WindowState != WindowState.Maximized ||
+                !TaskbarIsWindowVisible(hwnd) ||
+                TaskbarIsIconic(hwnd) ||
+                !TaskbarIsZoomed(hwnd) ||
+                !IsTaskListAtCursor())
             {
-                WmSize => "WM_SIZE",
-                WmActivate => "WM_ACTIVATE",
-                WmSetFocus => "WM_SETFOCUS",
-                WmKillFocus => "WM_KILLFOCUS",
-                WmShowWindow => "WM_SHOWWINDOW",
-                WmActivateApp => "WM_ACTIVATEAPP",
-                WmMouseActivate => "WM_MOUSEACTIVATE",
-                WmWindowPosChanged => "WM_WINDOWPOSCHANGED",
-                WmStyleChanging => "WM_STYLECHANGING",
-                WmStyleChanged => "WM_STYLECHANGED",
-                WmNcActivate => "WM_NCACTIVATE",
-                WmSysCommand => "WM_SYSCOMMAND",
-                _ => null,
-            };
-        }
-
-        private static string DescribeMessage(int msg, IntPtr wParam, IntPtr lParam)
-        {
-            long wp = wParam.ToInt64();
-            long lp = lParam.ToInt64();
-
-            try
-            {
-                switch (msg)
-                {
-                    case WmSize:
-                        return $"type={DescribeSizeType(unchecked((int)wp))}; clientWidth={LowWord(lp)}; clientHeight={HighWord(lp)}";
-                    case WmActivate:
-                        return $"state={DescribeActivateState(LowWord(wp))}; minimized={HighWord(wp) != 0}; other={DescribeWindow(lParam)}";
-                    case WmSetFocus:
-                        return $"previous={DescribeWindow(wParam)}";
-                    case WmKillFocus:
-                        return $"next={DescribeWindow(wParam)}";
-                    case WmShowWindow:
-                        return $"show={wp != 0}; status=0x{unchecked((ulong)lp):X}";
-                    case WmActivateApp:
-                        return $"active={wp != 0}; otherThreadId={unchecked((uint)lp)}";
-                    case WmMouseActivate:
-                        return $"topLevel={DescribeWindow(wParam)}; hitTest={LowWord(lp)}; mouseMessage=0x{HighWord(lp):X4}";
-                    case WmWindowPosChanged:
-                        if (lParam != IntPtr.Zero)
-                        {
-                            NativeWindowPos pos = Marshal.PtrToStructure<NativeWindowPos>(lParam);
-                            return $"insertAfter={DescribeWindow(pos.HwndInsertAfter)}; x={pos.X}; y={pos.Y}; cx={pos.Cx}; cy={pos.Cy}; flags=0x{pos.Flags:X8}";
-                        }
-                        break;
-                    case WmStyleChanging:
-                    case WmStyleChanged:
-                        return $"index={unchecked((int)wp)}; styleStruct=0x{unchecked((ulong)lp):X}";
-                    case WmNcActivate:
-                        return $"active={wp != 0}; region=0x{unchecked((ulong)lp):X}";
-                    case WmSysCommand:
-                        int command = unchecked((int)(wp & 0xFFF0));
-                        return $"command={DescribeSysCommand(command)}; raw=0x{unchecked((ulong)wp):X}; source=0x{unchecked((ulong)lp):X}";
-                }
-            }
-            catch (Exception ex)
-            {
-                return $"decodeError={ex.GetType().Name}; wParam=0x{unchecked((ulong)wp):X}; lParam=0x{unchecked((ulong)lp):X}";
-            }
-
-            return $"wParam=0x{unchecked((ulong)wp):X}; lParam=0x{unchecked((ulong)lp):X}";
-        }
-
-        private void WriteDiagnostic(string source, string details)
-        {
-            string? path = _diagnosticLogPath;
-            if (string.IsNullOrWhiteSpace(path))
+                ClearTaskbarClickCandidate();
                 return;
+            }
 
-            long sequence = Interlocked.Increment(ref _diagnosticSequence);
-            string line;
+            Interlocked.Exchange(
+                ref _taskbarFocusSuppressedUntilUtcTicks,
+                DateTime.UtcNow
+                    .AddMilliseconds(TaskbarFocusSuppressionMilliseconds)
+                    .Ticks);
+
+            _taskbarClickCandidate = true;
+            _taskbarClickReactivated = false;
+            _taskbarClickCandidateStartedUtc = DateTime.UtcNow;
+
+            _taskbarFixTimer.Stop();
+            _taskbarFixTimer.Interval =
+                TimeSpan.FromMilliseconds(TaskbarCompletionDelayMilliseconds);
+            _taskbarFixTimer.Start();
+        }
+
+        private void TaskbarFixTimerOnTick(object? sender, EventArgs e)
+        {
+            _taskbarFixTimer?.Stop();
+
+            if (_taskbarFixDisabled || !_taskbarClickCandidate)
+            {
+                return;
+            }
 
             try
             {
-                IntPtr hwnd = _myHandle;
-                IntPtr foreground = NativeGetForegroundWindow();
-                IntPtr owner = hwnd != IntPtr.Zero ? NativeGetWindow(hwnd, DiagGwOwner) : IntPtr.Zero;
-                long style = hwnd != IntPtr.Zero ? GetWindowLongPtr(hwnd, DiagGwlStyle).ToInt64() : 0;
-                long exStyle = hwnd != IntPtr.Zero ? GetWindowLongPtr(hwnd, DiagGwlExStyle).ToInt64() : 0;
+                double elapsedMilliseconds =
+                    (DateTime.UtcNow - _taskbarClickCandidateStartedUtc)
+                    .TotalMilliseconds;
 
-                string cursor = "unavailable";
-                if (NativeGetCursorPos(out NativePoint point))
+                bool mustCompleteMissedMinimize =
+                    _taskbarClickReactivated &&
+                    elapsedMilliseconds >= TaskbarCompletionDelayMilliseconds - 50 &&
+                    elapsedMilliseconds < 1500 &&
+                    _taskbarFixHwnd != IntPtr.Zero &&
+                    IsLoaded &&
+                    IsVisible &&
+                    IsActive &&
+                    WindowState == WindowState.Maximized &&
+                    TaskbarIsWindowVisible(_taskbarFixHwnd) &&
+                    !TaskbarIsIconic(_taskbarFixHwnd) &&
+                    TaskbarIsZoomed(_taskbarFixHwnd);
+
+                ClearTaskbarClickCandidate();
+
+                if (!mustCompleteMissedMinimize)
                 {
-                    IntPtr child = NativeWindowFromPoint(point);
-                    IntPtr root = child != IntPtr.Zero ? NativeGetAncestor(child, DiagGaRoot) : IntPtr.Zero;
-                    cursor = $"point=({point.X},{point.Y}); child={DescribeWindow(child)}; root={DescribeWindow(root)}";
+                    return;
                 }
 
-                NativeWindowPlacement placement = new NativeWindowPlacement
-                {
-                    Length = Marshal.SizeOf<NativeWindowPlacement>(),
-                };
-                bool hasPlacement = hwnd != IntPtr.Zero && NativeGetWindowPlacement(hwnd, ref placement);
+                SimpleLogHelper.DebugInfo(
+                    "Taskbar final fix: completing missed native minimize after " +
+                    "shell click reactivated the maximized session window.");
 
-                line =
-                    $"seq={sequence}; time={DateTime.Now:O}; source={source}; {details}; " +
-                    $"hwnd={DescribeWindow(hwnd)}; managedState={WindowState}; managedActive={IsActive}; managedVisible={IsVisible}; showInTaskbar={ShowInTaskbar}; " +
-                    $"nativeVisible={(hwnd != IntPtr.Zero && NativeIsWindowVisible(hwnd))}; iconic={(hwnd != IntPtr.Zero && NativeIsIconic(hwnd))}; zoomed={(hwnd != IntPtr.Zero && NativeIsZoomed(hwnd))}; " +
-                    $"owner={DescribeWindow(owner)}; style=0x{unchecked((ulong)style):X}; exStyle=0x{unchecked((ulong)exStyle):X}; " +
-                    $"placement={(hasPlacement ? DescribeShowCommand(placement.ShowCommand) : "unavailable")}; foreground={DescribeWindow(foreground)}; cursor={cursor}";
+                // This is the same WPF state transition used by 1Remote's own
+                // title-bar minimize button. It runs only after the shell failed
+                // to emit either SC_MINIMIZE or SIZE_MINIMIZED.
+                WindowState = WindowState.Minimized;
             }
             catch (Exception ex)
             {
-                line = $"seq={sequence}; time={DateTime.Now:O}; source={source}; snapshotError={ex}";
+                DisableTaskbarFix("completion callback failed", ex);
             }
-
-            ThreadPool.QueueUserWorkItem(_ =>
-            {
-                try
-                {
-                    lock (DiagnosticFileLock)
-                    {
-                        File.AppendAllText(path, line + Environment.NewLine, Encoding.UTF8);
-                    }
-                }
-                catch
-                {
-                    // Logging must never affect application behaviour.
-                }
-            });
         }
 
-        private static string DescribeWindow(IntPtr hwnd)
+        private void ClearTaskbarClickCandidate()
         {
-            if (hwnd == IntPtr.Zero)
-                return "0x0";
-
-            var classBuffer = new StringBuilder(256);
-            string className = NativeGetClassName(hwnd, classBuffer, classBuffer.Capacity) > 0 ? classBuffer.ToString() : "?";
-            uint processId = 0;
-            string processName = "?";
-
             try
             {
-                NativeGetWindowThreadProcessId(hwnd, out processId);
-                if (processId != 0)
-                {
-                    using Process process = Process.GetProcessById(unchecked((int)processId));
-                    processName = process.ProcessName;
-                }
+                _taskbarFixTimer?.Stop();
             }
             catch
             {
-                // Best effort only.
+                // Best-effort cleanup only.
             }
 
-            return $"0x{hwnd.ToInt64():X}[class={className}; process={processName}; pid={processId}]";
+            _taskbarClickCandidate = false;
+            _taskbarClickReactivated = false;
+            _taskbarClickCandidateStartedUtc = DateTime.MinValue;
         }
 
-        private static int LowWord(long value) => unchecked((ushort)(value & 0xFFFF));
-        private static int HighWord(long value) => unchecked((ushort)((value >> 16) & 0xFFFF));
-
-        private static string DescribeActivateState(int value) => value switch
+        private bool IsTaskListAtCursor()
         {
-            0 => "WA_INACTIVE",
-            1 => "WA_ACTIVE",
-            2 => "WA_CLICKACTIVE",
-            _ => value.ToString(),
-        };
+            if (!TaskbarGetCursorPos(out TaskbarPoint point))
+            {
+                return false;
+            }
 
-        private static string DescribeSizeType(int value) => value switch
+            IntPtr child = TaskbarWindowFromPoint(point);
+            if (child == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            IntPtr root = TaskbarGetAncestor(child, TaskbarGaRoot);
+            if (root == IntPtr.Zero)
+            {
+                root = child;
+            }
+
+            string childClass = GetTaskbarWindowClassName(child);
+            string rootClass = GetTaskbarWindowClassName(root);
+
+            bool isTaskList =
+                childClass.Equals(
+                    "MSTaskListWClass",
+                    StringComparison.OrdinalIgnoreCase) ||
+                childClass.Contains(
+                    "TaskList",
+                    StringComparison.OrdinalIgnoreCase) ||
+                childClass.Contains(
+                    "Taskbar",
+                    StringComparison.OrdinalIgnoreCase);
+
+            bool isTaskbarRoot =
+                rootClass.Equals(
+                    "Shell_TrayWnd",
+                    StringComparison.OrdinalIgnoreCase) ||
+                rootClass.Equals(
+                    "Shell_SecondaryTrayWnd",
+                    StringComparison.OrdinalIgnoreCase);
+
+            return isTaskList && isTaskbarRoot;
+        }
+
+        private static string GetTaskbarWindowClassName(IntPtr hwnd)
         {
-            0 => "SIZE_RESTORED",
-            1 => "SIZE_MINIMIZED",
-            2 => "SIZE_MAXIMIZED",
-            3 => "SIZE_MAXSHOW",
-            4 => "SIZE_MAXHIDE",
-            _ => value.ToString(),
-        };
+            var buffer = new StringBuilder(256);
+            return TaskbarGetClassName(hwnd, buffer, buffer.Capacity) > 0
+                ? buffer.ToString()
+                : string.Empty;
+        }
 
-        private static string DescribeSysCommand(int value) => value switch
+        private void DisableTaskbarFix(string context, Exception exception)
         {
-            0xF000 => "SC_SIZE",
-            0xF010 => "SC_MOVE",
-            0xF020 => "SC_MINIMIZE",
-            0xF030 => "SC_MAXIMIZE",
-            0xF060 => "SC_CLOSE",
-            0xF090 => "SC_MOUSEMENU",
-            0xF100 => "SC_KEYMENU",
-            0xF120 => "SC_RESTORE",
-            0xF130 => "SC_TASKLIST",
-            _ => $"0x{value:X4}",
-        };
+            _taskbarFixDisabled = true;
+            ClearTaskbarClickCandidate();
 
-        private static string DescribeShowCommand(int value) => value switch
+            SimpleLogHelper.DebugWarning($"Taskbar final fix disabled: {context}");
+            SimpleLogHelper.Warning(exception);
+        }
+
+        private void TaskbarFixOnClosed(object? sender, EventArgs e)
         {
-            0 => "SW_HIDE",
-            1 => "SW_SHOWNORMAL",
-            2 => "SW_SHOWMINIMIZED",
-            3 => "SW_SHOWMAXIMIZED",
-            4 => "SW_SHOWNOACTIVATE",
-            5 => "SW_SHOW",
-            6 => "SW_MINIMIZE",
-            7 => "SW_SHOWMINNOACTIVE",
-            8 => "SW_SHOWNA",
-            9 => "SW_RESTORE",
-            10 => "SW_SHOWDEFAULT",
-            11 => "SW_FORCEMINIMIZE",
-            _ => value.ToString(),
-        };
+            ClearTaskbarClickCandidate();
 
-        private static IntPtr GetWindowLongPtr(IntPtr hwnd, int index) =>
-            IntPtr.Size == 8 ? NativeGetWindowLongPtr64(hwnd, index) : new IntPtr(NativeGetWindowLong32(hwnd, index));
+            try
+            {
+                if (_taskbarFixTimer != null)
+                {
+                    _taskbarFixTimer.Tick -= TaskbarFixTimerOnTick;
+                    _taskbarFixTimer = null;
+                }
+
+                if (_taskbarFixHwndSource != null)
+                {
+                    _taskbarFixHwndSource.RemoveHook(TaskbarFixWndProc);
+                    _taskbarFixHwndSource = null;
+                }
+
+                // Microsoft documents clearing window properties before the HWND is
+                // destroyed. VT_EMPTY removes the window-level AppUserModelID.
+                if (_taskbarFixHwnd != IntPtr.Zero)
+                {
+                    TrySetWindowAppUserModelId(_taskbarFixHwnd, null);
+                }
+            }
+            catch (Exception ex)
+            {
+                SimpleLogHelper.Warning(ex);
+            }
+            finally
+            {
+                Closed -= TaskbarFixOnClosed;
+                _taskbarFixHwnd = IntPtr.Zero;
+            }
+        }
+
+        private static bool TrySetWindowAppUserModelId(
+            IntPtr hwnd,
+            string? appUserModelId)
+        {
+            if (hwnd == IntPtr.Zero)
+            {
+                return false;
+            }
+
+            IPropertyStore? propertyStore = null;
+            PropVariant value = appUserModelId == null
+                ? PropVariant.Empty()
+                : PropVariant.FromString(appUserModelId);
+
+            try
+            {
+                Guid propertyStoreInterfaceId =
+                    typeof(IPropertyStore).GUID;
+
+                int getStoreResult = TaskbarGetPropertyStoreForWindow(
+                    hwnd,
+                    ref propertyStoreInterfaceId,
+                    out propertyStore);
+
+                if (getStoreResult < 0 || propertyStore == null)
+                {
+                    return false;
+                }
+
+                PropertyKey key = AppUserModelIdKey;
+                int setResult = propertyStore.SetValue(ref key, ref value);
+                return setResult >= 0;
+            }
+            catch (Exception ex)
+            {
+                SimpleLogHelper.DebugWarning(
+                    $"Unable to set taskbar AppUserModelID on hwnd " +
+                    $"0x{hwnd.ToInt64():X}");
+                SimpleLogHelper.Warning(ex);
+                return false;
+            }
+            finally
+            {
+                value.Dispose();
+
+                if (propertyStore != null &&
+                    Marshal.IsComObject(propertyStore))
+                {
+                    try
+                    {
+                        Marshal.FinalReleaseComObject(propertyStore);
+                    }
+                    catch
+                    {
+                        // Best-effort COM cleanup only.
+                    }
+                }
+            }
+        }
+
+        private static int TaskbarLowWord(IntPtr value) =>
+            unchecked((ushort)(value.ToInt64() & 0xFFFFL));
+
+        private static int TaskbarHighWord(IntPtr value) =>
+            unchecked((ushort)((value.ToInt64() >> 16) & 0xFFFFL));
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct NativePoint
+        private struct TaskbarPoint
         {
             public int X;
             public int Y;
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct NativeRect
+        [StructLayout(LayoutKind.Sequential, Pack = 4)]
+        private struct PropertyKey
         {
-            public int Left;
-            public int Top;
-            public int Right;
-            public int Bottom;
+            public Guid FormatId;
+            public uint PropertyId;
+
+            public PropertyKey(Guid formatId, uint propertyId)
+            {
+                FormatId = formatId;
+                PropertyId = propertyId;
+            }
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct NativeWindowPlacement
+        [StructLayout(LayoutKind.Explicit, Size = 16)]
+        private struct PropVariant : IDisposable
         {
-            public int Length;
-            public int Flags;
-            public int ShowCommand;
-            public NativePoint MinPosition;
-            public NativePoint MaxPosition;
-            public NativeRect NormalPosition;
+            private const ushort VtEmpty = 0;
+            private const ushort VtLpwstr = 31;
+
+            [FieldOffset(0)]
+            private ushort _variantType;
+
+            [FieldOffset(8)]
+            private IntPtr _pointerValue;
+
+            public static PropVariant Empty() =>
+                new PropVariant
+                {
+                    _variantType = VtEmpty,
+                    _pointerValue = IntPtr.Zero,
+                };
+
+            public static PropVariant FromString(string value) =>
+                new PropVariant
+                {
+                    _variantType = VtLpwstr,
+                    _pointerValue = Marshal.StringToCoTaskMemUni(value),
+                };
+
+            public void Dispose()
+            {
+                TaskbarPropVariantClear(ref this);
+            }
         }
 
-        [StructLayout(LayoutKind.Sequential)]
-        private struct NativeWindowPos
+        [ComImport]
+        [Guid("886D8EEB-8CF2-4446-8D02-CDBA1DBDCF99")]
+        [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        private interface IPropertyStore
         {
-            public IntPtr Hwnd;
-            public IntPtr HwndInsertAfter;
-            public int X;
-            public int Y;
-            public int Cx;
-            public int Cy;
-            public uint Flags;
+            [PreserveSig]
+            int GetCount(out uint propertyCount);
+
+            [PreserveSig]
+            int GetAt(uint propertyIndex, out PropertyKey key);
+
+            [PreserveSig]
+            int GetValue(ref PropertyKey key, out PropVariant value);
+
+            [PreserveSig]
+            int SetValue(ref PropertyKey key, ref PropVariant value);
+
+            [PreserveSig]
+            int Commit();
         }
 
-        [DllImport("user32.dll", EntryPoint = "RegisterWindowMessageW", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern int NativeRegisterWindowMessage(string message);
+        [DllImport(
+            "user32.dll",
+            EntryPoint = "RegisterWindowMessageW",
+            CharSet = CharSet.Unicode,
+            ExactSpelling = true,
+            SetLastError = true)]
+        private static extern int TaskbarRegisterWindowMessage(string message);
 
-        [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]
-        private static extern IntPtr NativeGetForegroundWindow();
-
-        [DllImport("user32.dll", EntryPoint = "GetWindow", SetLastError = true)]
-        private static extern IntPtr NativeGetWindow(IntPtr hwnd, uint command);
-
-        [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
-        private static extern IntPtr NativeGetWindowLongPtr64(IntPtr hwnd, int index);
-
-        [DllImport("user32.dll", EntryPoint = "GetWindowLongW", SetLastError = true)]
-        private static extern int NativeGetWindowLong32(IntPtr hwnd, int index);
-
-        [DllImport("user32.dll", EntryPoint = "IsWindowVisible")]
+        [DllImport(
+            "user32.dll",
+            EntryPoint = "GetCursorPos",
+            ExactSpelling = true,
+            SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool NativeIsWindowVisible(IntPtr hwnd);
+        private static extern bool TaskbarGetCursorPos(out TaskbarPoint point);
 
-        [DllImport("user32.dll", EntryPoint = "IsIconic")]
+        [DllImport(
+            "user32.dll",
+            EntryPoint = "WindowFromPoint",
+            ExactSpelling = true)]
+        private static extern IntPtr TaskbarWindowFromPoint(TaskbarPoint point);
+
+        [DllImport(
+            "user32.dll",
+            EntryPoint = "GetAncestor",
+            ExactSpelling = true)]
+        private static extern IntPtr TaskbarGetAncestor(IntPtr hwnd, uint flags);
+
+        [DllImport(
+            "user32.dll",
+            EntryPoint = "GetClassNameW",
+            CharSet = CharSet.Unicode,
+            ExactSpelling = true,
+            SetLastError = true)]
+        private static extern int TaskbarGetClassName(
+            IntPtr hwnd,
+            StringBuilder className,
+            int maxCount);
+
+        [DllImport(
+            "user32.dll",
+            EntryPoint = "IsWindowVisible",
+            ExactSpelling = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool NativeIsIconic(IntPtr hwnd);
+        private static extern bool TaskbarIsWindowVisible(IntPtr hwnd);
 
-        [DllImport("user32.dll", EntryPoint = "IsZoomed")]
+        [DllImport(
+            "user32.dll",
+            EntryPoint = "IsIconic",
+            ExactSpelling = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool NativeIsZoomed(IntPtr hwnd);
+        private static extern bool TaskbarIsIconic(IntPtr hwnd);
 
-        [DllImport("user32.dll", EntryPoint = "GetWindowPlacement", SetLastError = true)]
+        [DllImport(
+            "user32.dll",
+            EntryPoint = "IsZoomed",
+            ExactSpelling = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool NativeGetWindowPlacement(IntPtr hwnd, ref NativeWindowPlacement placement);
+        private static extern bool TaskbarIsZoomed(IntPtr hwnd);
 
-        [DllImport("user32.dll", EntryPoint = "GetCursorPos", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        private static extern bool NativeGetCursorPos(out NativePoint point);
+        [DllImport(
+            "shell32.dll",
+            EntryPoint = "SHGetPropertyStoreForWindow",
+            ExactSpelling = true)]
+        [PreserveSig]
+        private static extern int TaskbarGetPropertyStoreForWindow(
+            IntPtr hwnd,
+            ref Guid interfaceId,
+            [MarshalAs(UnmanagedType.Interface)] out IPropertyStore propertyStore);
 
-        [DllImport("user32.dll", EntryPoint = "WindowFromPoint")]
-        private static extern IntPtr NativeWindowFromPoint(NativePoint point);
-
-        [DllImport("user32.dll", EntryPoint = "GetAncestor")]
-        private static extern IntPtr NativeGetAncestor(IntPtr hwnd, uint flags);
-
-        [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern int NativeGetClassName(IntPtr hwnd, StringBuilder className, int maxCount);
-
-        [DllImport("user32.dll", EntryPoint = "GetWindowThreadProcessId", SetLastError = true)]
-        private static extern uint NativeGetWindowThreadProcessId(IntPtr hwnd, out uint processId);
+        [DllImport(
+            "ole32.dll",
+            EntryPoint = "PropVariantClear",
+            ExactSpelling = true)]
+        [PreserveSig]
+        private static extern int TaskbarPropVariantClear(
+            ref PropVariant value);
     }
 }
