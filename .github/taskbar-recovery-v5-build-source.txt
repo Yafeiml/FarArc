@@ -1,0 +1,3 @@
+Official baseline: 1Remote 1.2.1 commit a2a81be532f7da9016b77657009ccfe09574be9f
+Branch: fix/win11-25h2-taskbar-recovery-v5
+Purpose: recover own-button missed minimize when foreground returns to the session HWND or remains stuck in the taskbar shell transition.
