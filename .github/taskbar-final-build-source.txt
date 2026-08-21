@@ -1,0 +1,3 @@
+Official baseline: 1Remote 1.2.1
+Final fix branch: fix/win11-25h2-taskbar-final
+Build validation: .github/workflows/build-taskbar-final-pr.yml on diagnostic/win11-25h2-taskbar-1.2.1
