@@ -61,6 +61,7 @@ if (-not (Test-Path $exePath)) {
 
 $verifyBundle = Join-Path $env:RUNNER_TEMP 'recovery-v4-compiled-bundle'
 $verifySource = Join-Path $env:RUNNER_TEMP 'TabWindowView.recovery-v4.decompiled.cs'
+$verifyBootstrap = Join-Path $env:RUNNER_TEMP 'TaskbarRecoveryV4Bootstrap.decompiled.cs'
 if (Test-Path $verifyBundle) {
     Remove-Item $verifyBundle -Recurse -Force
 }
@@ -81,14 +82,19 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Failed to decompile the compiled TabWindowView type for v4 verification.'
 }
 
+& ilspycmd -t '_1RM.View.Host.TaskbarRecoveryV4Bootstrap' $compiledAssembly.FullName | Set-Content -Path $verifyBootstrap -Encoding UTF8
+if ($LASTEXITCODE -ne 0) {
+    throw 'Failed to decompile the compiled v4 bootstrap type.'
+}
+
 $compiled = Get-Content $verifySource -Raw
 $requiredCompiledV4 = @(
     'TaskbarRecoveryV4-silent-foreground-watchdog',
-    'RegisterTaskbarRecoveryV4',
     'V4_SILENT_FOREGROUND_MISMATCH_SAMPLE',
     'V4_RECOVERY_SEND_SC_MINIMIZE',
     'TaskbarRecoveryV4TimerOnTick',
-    'RecoverSilentForegroundMismatchV4'
+    'RecoverSilentForegroundMismatchV4',
+    'InitializeTaskbarRecoveryV4'
 )
 foreach ($fragment in $requiredCompiledV4) {
     if (-not $compiled.Contains($fragment)) {
@@ -96,8 +102,21 @@ foreach ($fragment in $requiredCompiledV4) {
     }
 }
 
+$compiledBootstrap = Get-Content $verifyBootstrap -Raw
+$requiredBootstrapFragments = @(
+    'RegisterTaskbarRecoveryV4',
+    'RegisterClassHandler',
+    'OnTabWindowLoaded'
+)
+foreach ($fragment in $requiredBootstrapFragments) {
+    if (-not $compiledBootstrap.Contains($fragment)) {
+        throw "Compiled EXE is missing recovery-v4 bootstrap fragment: $fragment"
+    }
+}
+
 Remove-Item $verifyBundle -Recurse -Force
 Remove-Item $verifySource -Force
+Remove-Item $verifyBootstrap -Force
 Write-Host 'Compiled EXE recovery-v4 verification passed.'
 
 $sourceSha = (git -C $workspace rev-parse HEAD).Trim()
