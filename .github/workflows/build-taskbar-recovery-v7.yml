@@ -1,0 +1,47 @@
+name: Build taskbar recovery v7 1.2.1 x64
+
+on:
+  push:
+    branches:
+      - "fix/win11-25h2-taskbar-recovery-v7"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taskbar-recovery-v7-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout exact recovery-v7 branch and submodules
+        uses: actions/checkout@v4
+        with:
+          ref: fix/win11-25h2-taskbar-recovery-v7
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Build, verify, and package recovery v7
+        shell: pwsh
+        run: .\.github\scripts\build-taskbar-recovery-v7.ps1
+
+      - name: Upload recovery-v7 artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1Remote-1.2.1-win-x64-Win11-25H2-taskbar-recovery-v7
+          path: .\1Remote-1.2.1-win-x64-Win11-25H2-taskbar-recovery-v7.zip
+          if-no-files-found: error
+          retention-days: 14
