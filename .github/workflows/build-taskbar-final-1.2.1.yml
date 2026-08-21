@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - "fix/win11-25h2-taskbar-final"
+  pull_request:
+    branches:
+      - "diagnostic/win11-25h2-taskbar-1.2.1"
   workflow_dispatch:
 
 permissions:
