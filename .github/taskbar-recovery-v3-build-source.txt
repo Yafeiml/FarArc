@@ -1,0 +1,3 @@
+Official baseline: 1Remote 1.2.1 commit a2a81be532f7da9016b77657009ccfe09574be9f
+Branch: fix/win11-25h2-taskbar-recovery-v3
+Recovery: native SC_MINIMIZE after non-minimized taskbar reactivation
