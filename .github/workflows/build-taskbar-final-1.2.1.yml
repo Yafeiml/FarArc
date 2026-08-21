@@ -1,0 +1,325 @@
+name: Build 1Remote 1.2.1 Win11 25H2 taskbar final x64
+
+on:
+  push:
+    branches:
+      - "fix/win11-25h2-taskbar-final"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taskbar-final-1-2-1-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout exact final branch and submodules
+        uses: actions/checkout@v4
+        with:
+          ref: fix/win11-25h2-taskbar-final
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Install .NET 9 SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Validate final taskbar source and native exports
+        shell: pwsh
+        run: |
+          $fixPath = Join-Path $env:GITHUB_WORKSPACE "Ui\View\Host\TabWindowView.taskbar_diagnostics.cs"
+          $timerPath = Join-Path $env:GITHUB_WORKSPACE "Ui\View\Host\TabWindowView.xaml_timer.cs"
+          $fixText = Get-Content $fixPath -Raw
+          $timerText = Get-Content $timerPath -Raw
+
+          if ($fixText -match 'GuardGetCursorPos') {
+            throw "The broken GuardGetCursorPos declaration is still present."
+          }
+          if ($fixText -match 'ITaskbarList') {
+            throw "The final fix must not call ITaskbarList."
+          }
+
+          $requiredFixFragments = @(
+            'TaskbarAppUserModelId',
+            'SHGetPropertyStoreForWindow',
+            'TaskbarGetCursorPos',
+            'EntryPoint = "GetCursorPos"',
+            'WindowState = WindowState.Minimized',
+            '_taskbarFocusSuppressedUntilUtcTicks',
+            'TaskbarCreated'
+          )
+          foreach ($fragment in $requiredFixFragments) {
+            if (-not $fixText.Contains($fragment)) {
+              throw "Required final-fix fragment is missing: $fragment"
+            }
+          }
+
+          if (-not $timerText.Contains('Interlocked.Read')) {
+            throw "The protocol-focus timer suppression is missing."
+          }
+          if (-not $timerText.Contains('_taskbarFocusSuppressedUntilUtcTicks')) {
+            throw "The protocol-focus timer is not connected to the taskbar state machine."
+          }
+
+          Add-Type -TypeDefinition @"
+          using System;
+          using System.Runtime.InteropServices;
+
+          public static class FinalNativeExportProbe
+          {
+              [DllImport("kernel32.dll", EntryPoint = "LoadLibraryW", CharSet = CharSet.Unicode, SetLastError = true)]
+              public static extern IntPtr LoadLibrary(string fileName);
+
+              [DllImport("kernel32.dll", EntryPoint = "GetProcAddress", CharSet = CharSet.Ansi, SetLastError = true)]
+              public static extern IntPtr GetProcAddress(IntPtr module, string procedureName);
+          }
+          "@
+
+          $modules = @{
+            "user32.dll" = @(
+              'RegisterWindowMessageW',
+              'GetCursorPos',
+              'WindowFromPoint',
+              'GetAncestor',
+              'GetClassNameW',
+              'IsWindowVisible',
+              'IsIconic',
+              'IsZoomed'
+            )
+            "shell32.dll" = @('SHGetPropertyStoreForWindow')
+            "ole32.dll" = @('PropVariantClear')
+          }
+
+          foreach ($moduleName in $modules.Keys) {
+            $module = [FinalNativeExportProbe]::LoadLibrary($moduleName)
+            if ($module -eq [IntPtr]::Zero) {
+              throw "Unable to load $moduleName for export validation."
+            }
+            foreach ($export in $modules[$moduleName]) {
+              if ([FinalNativeExportProbe]::GetProcAddress($module, $export) -eq [IntPtr]::Zero) {
+                throw "Required export was not found: $moduleName!$export"
+              }
+            }
+          }
+
+          Write-Host "Final source checks and native export checks passed."
+
+      - name: Recover database-compatible value from verified official 1.2.1
+        shell: pwsh
+        run: |
+          Write-Host "Selected SDK: $(dotnet --version)"
+
+          $officialUrl = "https://github.com/1Remote/1Remote/releases/download/1.2.1/1Remote-1.2.1-net9-x64.zip"
+          $expectedSha256 = "825ae0d6d6ed45dbb155ed809b976c2a7532578b124b3b55c0cfc6bfa3267411"
+          $officialZip = Join-Path $env:RUNNER_TEMP "1Remote-1.2.1-net9-x64.zip"
+          $officialDir = Join-Path $env:RUNNER_TEMP "official-1Remote-1.2.1"
+          $bundleDir = Join-Path $env:RUNNER_TEMP "official-1Remote-bundle"
+          $decompiled = Join-Path $env:RUNNER_TEMP "Assert.decompiled.cs"
+
+          Invoke-WebRequest -Uri $officialUrl -OutFile $officialZip -UseBasicParsing
+          $actualSha256 = (Get-FileHash $officialZip -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualSha256 -ne $expectedSha256) {
+            throw "Official 1Remote 1.2.1 asset hash mismatch. Expected $expectedSha256, got $actualSha256."
+          }
+
+          Expand-Archive -Path $officialZip -DestinationPath $officialDir -Force
+          $officialExe = Get-ChildItem -Path $officialDir -Recurse -File -Filter "1Remote.exe" | Select-Object -First 1
+          if ($null -eq $officialExe) {
+            throw "1Remote.exe was not found in the verified official release package."
+          }
+
+          dotnet tool install --global sfextract
+          dotnet tool install --global ilspycmd --version 9.1.0.7988
+          $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+
+          New-Item -ItemType Directory -Path $bundleDir -Force | Out-Null
+          & sfextract $officialExe.FullName -o $bundleDir
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to extract the verified official .NET single-file bundle."
+          }
+
+          $officialAssembly = Get-ChildItem -Path $bundleDir -Recurse -File -Filter "1Remote.dll" | Select-Object -First 1
+          if ($null -eq $officialAssembly) {
+            throw "The managed 1Remote.dll entry was not found in the verified official bundle."
+          }
+
+          & ilspycmd -t "_1RM.Assert" $officialAssembly.FullName | Set-Content -Path $decompiled -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to inspect the managed assembly from the verified official bundle."
+          }
+
+          $decompiledText = Get-Content $decompiled -Raw
+          $match = [regex]::Match($decompiledText, 'STRING_SALT\s*=\s*"((?:\\.|[^"\\])*)"\s*;')
+          if (-not $match.Success) {
+            throw "The database-compatible value was not found in the verified official assembly."
+          }
+
+          $saltLiteral = $match.Groups[1].Value
+          if ([string]::IsNullOrWhiteSpace($saltLiteral) -or $saltLiteral.Contains("REPLACE_ME_WITH_SALT")) {
+            throw "The recovered database-compatible value is invalid."
+          }
+
+          Write-Output "::add-mask::$saltLiteral"
+
+          $assertPath = Join-Path $env:GITHUB_WORKSPACE "Ui\Assert.cs"
+          $assertText = Get-Content $assertPath -Raw
+          $placeholder = '"===REPLACE_ME_WITH_SALT==="'
+          $replacement = '"' + $saltLiteral + '"'
+          if (-not $assertText.Contains($placeholder)) {
+            throw "The source encryption placeholder was not found."
+          }
+
+          Set-Content -Path $assertPath -Value $assertText.Replace($placeholder, $replacement) -Encoding UTF8
+          if ((Get-Content $assertPath -Raw).Contains("===REPLACE_ME_WITH_SALT===")) {
+            throw "The database-compatible value was not injected into the build source."
+          }
+
+          Remove-Item $officialZip -Force
+          Remove-Item $officialDir -Recurse -Force
+          Remove-Item $bundleDir -Recurse -Force
+          Remove-Item $decompiled -Force
+          Write-Host "Verified database compatibility data injected without disclosure."
+
+      - name: Restore NuGet packages for win-x64
+        shell: pwsh
+        run: dotnet restore .\Ui\Ui.csproj -r win-x64 -p:Configuration=Release
+
+      - name: Publish using the official 1.2.1 x64 profile
+        shell: pwsh
+        run: dotnet publish .\Ui\Ui.csproj -p:PublishProfile=.\Ui\Properties\PublishProfiles\x64-single.file.application.pubxml --no-restore
+
+      - name: Verify compiled EXE contains the final fix
+        shell: pwsh
+        run: |
+          $env:PATH = "$env:USERPROFILE\.dotnet\tools;$env:PATH"
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE "Ui\bin\Release\net9.0-windows\publish\win-x64"
+          $exe = Join-Path $publishDir "1Remote.exe"
+          if (-not (Test-Path $exe)) {
+            throw "Published 1Remote.exe was not found: $exe"
+          }
+          if ((Get-Item $exe).Length -lt 10000000) {
+            throw "Published 1Remote.exe is unexpectedly small."
+          }
+
+          $verifyBundle = Join-Path $env:RUNNER_TEMP "final-1Remote-bundle"
+          $verifySource = Join-Path $env:RUNNER_TEMP "TabWindowView.final.decompiled.cs"
+          New-Item -ItemType Directory -Path $verifyBundle -Force | Out-Null
+
+          & sfextract $exe -o $verifyBundle
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to extract the compiled single-file EXE."
+          }
+          $assembly = Get-ChildItem -Path $verifyBundle -Recurse -File -Filter "1Remote.dll" | Select-Object -First 1
+          if ($null -eq $assembly) {
+            throw "The compiled 1Remote.dll entry was not found."
+          }
+
+          & ilspycmd -t "_1RM.View.Host.TabWindowView" $assembly.FullName | Set-Content -Path $verifySource -Encoding UTF8
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to decompile the compiled TabWindowView type."
+          }
+
+          $compiledText = Get-Content $verifySource -Raw
+          $requiredCompiledFragments = @(
+            '1Remote.RemoteSession',
+            'TaskbarGetPropertyStoreForWindow',
+            'TaskbarGetCursorPos',
+            '_taskbarFocusSuppressedUntilUtcTicks',
+            'TaskbarFixTimerOnTick'
+          )
+          foreach ($fragment in $requiredCompiledFragments) {
+            if (-not $compiledText.Contains($fragment)) {
+              throw "Compiled EXE is missing final-fix fragment: $fragment"
+            }
+          }
+          if ($compiledText.Contains('GuardGetCursorPos')) {
+            throw "Compiled EXE still contains the broken GuardGetCursorPos declaration."
+          }
+
+          Remove-Item $verifyBundle -Recurse -Force
+          Remove-Item $verifySource -Force
+          Write-Host "Compiled EXE verification passed."
+
+      - name: Create final ZIP, notes, and hashes
+        id: package
+        shell: pwsh
+        run: |
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE "Ui\bin\Release\net9.0-windows\publish\win-x64"
+          if (-not (Test-Path $publishDir)) {
+            throw "Publish directory not found: $publishDir"
+          }
+
+          $sourceSha = (git rev-parse HEAD).Trim()
+          $sourceShortSha = (git rev-parse --short=8 HEAD).Trim()
+          $readmePath = Join-Path $publishDir "README-Taskbar-Fix.txt"
+          $readme = @"
+1Remote 1.2.1 - Windows 11 25H2 taskbar final compatibility build
+
+Target
+- Windows 11 25H2 (including build 26200 family)
+- 1Remote remote-session window
+- Compatible with the reported StartAllBack/classic-taskbar scenario
+
+What changed
+1. The remote-session HWND receives a stable window-level AppUserModelID before its taskbar button is created.
+2. 1Remote's 100 ms RDP/integrated-window focus correction is paused for 750 ms while the shell processes an active taskbar-button click.
+3. If and only if the recorded failure sequence occurs (WA_INACTIVE over the task list, immediate WA_ACTIVE, and no native minimize message), the build completes the expected WPF minimize transition after 260 ms.
+4. The fix does not use ITaskbarList, does not toggle ShowInTaskbar, does not change window ownership, and does not steal foreground activation.
+
+Build provenance
+- Official 1Remote version: 1.2.1
+- Official release input SHA-256: 825ae0d6d6ed45dbb155ed809b976c2a7532578b124b3b55c0cfc6bfa3267411
+- Source branch: fix/win11-25h2-taskbar-final
+- Source commit: $sourceSha
+- Configuration: Release / win-x64 / official x64 single-file profile
+- Database encryption compatibility value recovered from the hash-verified official 1.2.1 binary during CI; the value is not printed or packaged separately.
+
+Installation / test
+1. Exit every running 1Remote process.
+2. Back up the existing 1Remote directory and data before replacing files.
+3. Extract this ZIP to a new directory and launch 1Remote.exe.
+4. Open a remote session, maximize its remote window, then repeatedly click its active taskbar button. A normal click should minimize the window and the taskbar entry must remain recoverable.
+5. Also test Alt+Tab, multi-monitor taskbars, RDP reconnect, and the title-bar minimize/restore buttons.
+
+This build is compiled and structurally verified, but the exact Windows 11 25H2 + StartAllBack runtime combination must still be validated on the affected machine.
+"@
+          Set-Content -Path $readmePath -Value $readme -Encoding UTF8
+
+          $hashPath = Join-Path $publishDir "SHA256SUMS.txt"
+          $hashLines = Get-ChildItem -Path $publishDir -File |
+            Where-Object { $_.Name -ne "SHA256SUMS.txt" } |
+            Sort-Object Name |
+            ForEach-Object {
+              $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+              "$hash  $($_.Name)"
+            }
+          Set-Content -Path $hashPath -Value $hashLines -Encoding ASCII
+
+          $zipName = "1Remote-1.2.1-win-x64-Win11-25H2-taskbar-final-$sourceShortSha.zip"
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE $zipName
+          Compress-Archive -Path (Join-Path $publishDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
+
+          $zipHash = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          Write-Host "Final ZIP: $zipName"
+          Write-Host "Final ZIP SHA-256: $zipHash"
+          "zip_path=$zipPath" >> $env:GITHUB_OUTPUT
+          "zip_name=$zipName" >> $env:GITHUB_OUTPUT
+          "zip_sha256=$zipHash" >> $env:GITHUB_OUTPUT
+
+      - name: Upload final artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: 1Remote-1.2.1-win-x64-Win11-25H2-taskbar-final
+          path: ${{ steps.package.outputs.zip_path }}
+          if-no-files-found: error
+          retention-days: 14
