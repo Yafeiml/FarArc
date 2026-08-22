@@ -20,15 +20,9 @@ task Deps {
     } else { Write-Host "Chocolatey already installed" }
 
     exec {
-        #choco install -y dotnetfx --version 4.8.0.20190930
-        #choco install -y visualstudio2019buildtools
-        #choco install -y visualstudio2019-workload-universal
-        #choco install -y windows-sdk-10-version-1809-all
-
-        choco install -y visualstudio2022community
-        choco install -y dotnet-6.0-sdk
-        choco install -y visualstudio2022-workload-manageddesktop
-        choco install -y visualstudio2022-workload-universal
+        choco install -y visualstudio2026community
+        choco install -y dotnet-10.0-sdk
+        choco install -y visualstudio2026-workload-manageddesktop
 
         # optional
         # choco install -y git

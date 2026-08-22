@@ -61,7 +61,7 @@ namespace _1RM.View.Host
 
 
         private RelayCommand? _cmdReconnect;
-        private string _displayName;
+        private string _displayName = "";
 
         public RelayCommand CmdReconnect
         {

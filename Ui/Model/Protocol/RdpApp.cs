@@ -160,7 +160,7 @@ namespace _1RM.Model.Protocol
         #endregion
         public override string GetHelpUrl()
         {
-            return "https://1remote.github.io/usage/protocol/especial/remoteapp/";
+            return Assert.DOCUMENTATION_URL;
         }
     }
 }

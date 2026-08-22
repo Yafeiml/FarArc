@@ -1,4 +1,4 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using System.Timers;
 using System;
 using System.Windows;
@@ -74,13 +74,14 @@ namespace _1RM.View.Host
         /// </summary>
         private void RunForIntegrate()
         {
-            bool isIntegrate = Vm?.SelectedItem?.Content?.GetProtocolHostType() == ProtocolHostType.Integrate;
+            var selectedContent = Vm?.SelectedItem?.Content;
+            bool isIntegrate = selectedContent?.GetProtocolHostType() == ProtocolHostType.Integrate;
             IntPtr hWnd = IntPtr.Zero;
-            if (isIntegrate)
+            if (isIntegrate && selectedContent != null)
             {
                 try
                 {
-                    hWnd = this.Vm.SelectedItem.Content.GetHostHwnd();
+                    hWnd = selectedContent.GetHostHwnd();
                 }
                 catch (Exception ex)
                 {
@@ -180,10 +181,6 @@ namespace _1RM.View.Host
             if (hitRoot != IntPtr.Zero && hitRoot != myHandle)
                 return false;
 
-#if DEBUG
-            var r = true;
-            //SimpleLogHelper.Debug($@"TabWindowView IsMouseInside = {r}: mousePos = ({mousePos.X}, {mousePos.Y}), windowPos = ({windowPos.X}, {windowPos.Y}), windowBottomRight = ({windowBottomRight.X}, {windowBottomRight.Y})");
-#endif
             return true;
         }
 
@@ -197,7 +194,7 @@ namespace _1RM.View.Host
             if (Vm?.SelectedItem?.Content?.Status != ProtocolHosts.ProtocolHostStatus.Connected)
                 return;
 
-            // Fix the resizing bug introduced by #648, see https://github.com/1Remote/1Remote/issues/797 for more details
+            // Fix the resizing bug introduced by #648, see original project issue #797 for more details
             bool isMousePressed = System.Windows.Forms.Control.MouseButtons == MouseButtons.Left
                                   || System.Windows.Forms.Control.MouseButtons == MouseButtons.Right
                                   || System.Windows.Forms.Control.MouseButtons == MouseButtons.Middle;
@@ -290,7 +287,7 @@ namespace _1RM.View.Host
                 {
                     // !isMousePressed is to fix the resizing bug introduced by #648
                     // Stay focused while the mouse is pressed to avoid losing focus when resizing the RDP window,
-                    // see https://github.com/1Remote/1Remote/issues/797 for more details
+                    // see original project issue #797 for more details
                     if (!isMousePressed)
                     {
                         // RDP has focus AND mouse is not inside the tab window, then switch focus to desktop, user input will not be sent to RDP.

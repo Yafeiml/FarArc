@@ -35,7 +35,14 @@ namespace _1RM.Utils.PuTTY.Model
                 // verify MD5
                 var md5 = MD5Helper.GetMd5Hash32BitString(File.ReadAllBytes(installPath));
                 byte[] bytes = new byte[stream.Length];
-                stream.Read(bytes, 0, bytes.Length);
+                var offset = 0;
+                while (offset < bytes.Length)
+                {
+                    var bytesRead = stream.Read(bytes, offset, bytes.Length - offset);
+                    if (bytesRead == 0)
+                        break;
+                    offset += bytesRead;
+                }
                 var md5_2 = MD5Helper.GetMd5Hash32BitString(bytes);
                 if (md5_2 != md5)
                 {

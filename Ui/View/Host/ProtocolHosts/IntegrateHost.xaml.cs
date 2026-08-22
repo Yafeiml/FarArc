@@ -17,7 +17,6 @@ using _1RM.Model.ProtocolRunner.Default;
 using _1RM.Utils;
 using _1RM.Utils.PuTTY;
 using _1RM.Utils.PuTTY.Model;
-using _1RM.Utils.PuTTY;
 using Shawn.Utils;
 using Stylet;
 using Path = System.IO.Path;
@@ -30,7 +29,7 @@ We should add <UseWindowsForms>true</UseWindowsForms> in the csproj.
 
 <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>netcoreapp3.0</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <UseWpf>true</UseWpf>
     <UseWindowsForms>true</UseWindowsForms>
 </PropertyGroup>

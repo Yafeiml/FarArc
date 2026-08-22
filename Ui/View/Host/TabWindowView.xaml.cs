@@ -10,6 +10,7 @@ using Shawn.Utils.Wpf.Controls;
 using Stylet;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Shawn.Utils;
 using Shawn.Utils.Wpf;
 using _1RM.View.Host.ProtocolHosts;
@@ -24,6 +25,7 @@ namespace _1RM.View.Host
         public string Token => Vm.Token;
 
         private IntPtr _myHandle = IntPtr.Zero;
+        private static readonly bool IsWindows11OrLater = CheckIsWindows11OrLater();
 
 
 
@@ -133,29 +135,75 @@ namespace _1RM.View.Host
 
         private IntPtr AdditionalWndProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
         {
+            const int WM_STYLECHANGING = 0x007C;
             const int WM_GETICON = 0x007F;
+            const int GWL_STYLE = -16;
             const int ICON_BIG = 1;
             const int ICON_SMALL = 0;
-            // const int ICON_SMALL2 = 2;
+            const uint WS_VISIBLE = 0x10000000;
 
-            if (msg == WM_GETICON)
+            // WPF WindowChromeWorker temporarily removes WS_VISIBLE while handling
+            // WM_SIZE, WM_SETTEXT and WM_SETICON. Windows 11 taskbar replacements
+            // such as StartAllBack can observe the transient hidden state and fail
+            // to add this top-level window back to the taskbar. Keep the native
+            // window visible while a live session window is logically visible.
+            // WM_STYLECHANGING explicitly allows the receiver to amend styleNew.
+            if (msg == WM_STYLECHANGING
+                && wParam.ToInt64() == GWL_STYLE
+                && lParam != IntPtr.Zero
+                && IsWindows11OrLater
+                && App.ExitingFlag == false
+                && IsClosing == false
+                && Visibility == System.Windows.Visibility.Visible
+                && IsVisible
+                && Vm.Items.Count > 0)
             {
-                // Abort the GETICON message under certain conditions to
-                // prevent the Windows 10 Volume Mixer from picking up the
-                // session icons. Not an elegant way, but it works.
+                try
+                {
+                    var style = Marshal.PtrToStructure<StyleStruct>(lParam);
+                    if ((style.StyleOld & WS_VISIBLE) != 0
+                        && (style.StyleNew & WS_VISIBLE) == 0
+                        && (style.StyleOld ^ style.StyleNew) == WS_VISIBLE)
+                    {
+                        style.StyleNew |= WS_VISIBLE;
+                        Marshal.StructureToPtr(style, lParam, false);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    // A WndProc hook must never take down a live remote session.
+                    SimpleLogHelper.Warning($"TabWindow taskbar compatibility hook failed: {ex.Message}");
+                }
+            }
 
-                // Experiments confirmed that the following items display
-                // session icon as before (as expected).
-                //   This tab, Taskbar, Alt+Tab, Win+Tab, Task Manager
-
+            if (!IsWindows11OrLater && msg == WM_GETICON)
+            {
+                // Preserve the original Windows 10 workaround that prevents the
+                // volume mixer from adopting per-session icons. On Windows 11,
+                // let DefWindowProc/Shell resolve the icon so taskbar replacements
+                // can rebuild the window's taskbar entry reliably.
                 int size = wParam.ToInt32();
                 int dpi = lParam.ToInt32();
                 if (dpi == 0 && (size == ICON_SMALL || size == ICON_BIG))
                 {
-                    handled = true;  // Abort
+                    handled = true;
                 }
             }
+
             return IntPtr.Zero;
+        }
+
+        private static bool CheckIsWindows11OrLater()
+        {
+            var osVersion = Environment.OSVersion.Version;
+            return osVersion.Major >= 10 && osVersion.Build >= 22000;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct StyleStruct
+        {
+            public uint StyleOld;
+            public uint StyleNew;
         }
 
         private void InitWindowSizeOnLoaded()

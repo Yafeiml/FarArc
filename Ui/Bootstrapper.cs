@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -133,7 +133,7 @@ namespace _1RM
         {
             // Check if this is a transient GDI+ error from WindowsFormsHost
             // These errors are common in Windows 11 24H2 during window switching and can be safely ignored
-            // See: https://github.com/1Remote/1Remote/issues/924
+            // See: original project issue #924
             if (IsTransientGdiError(e.Exception))
             {
                 SimpleLogHelper.Warning($"Transient GDI+ error suppressed: {e.Exception.Message}");

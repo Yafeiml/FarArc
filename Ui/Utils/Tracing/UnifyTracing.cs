@@ -1,8 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+using Shawn.Utils;
 
 namespace _1RM.Utils.Tracing
 {
@@ -10,26 +8,30 @@ namespace _1RM.Utils.Tracing
     {
         public static void Init()
         {
-            MsAppCenterHelper.Init(Assert.MS_APP_CENTER_SECRET);
-            SentryIoHelper.Init(Assert.SENTRY_IO_DEN);
+            // External telemetry is intentionally disabled.
         }
 
         public static void Error(Exception e, IDictionary<string, string>? properties = null, Dictionary<string, string>? attachments = null)
         {
-            MsAppCenterHelper.Error(e, properties, attachments);
-            SentryIoHelper.Error(e, properties, attachments);
+            SimpleLogHelper.Error(e);
+            if (properties?.Count > 0)
+            {
+                SimpleLogHelper.Debug($"Error properties: {string.Join(", ", properties.Keys)}");
+            }
+            if (attachments?.Count > 0)
+            {
+                SimpleLogHelper.Debug($"Error attachments available locally: {string.Join(", ", attachments.Keys)}");
+            }
         }
 
         public static void TraceSpecial(Dictionary<string, string> kys)
         {
-            MsAppCenterHelper.TraceSpecial(kys);
-            SentryIoHelper.TraceSpecial(kys);
+            // No-op: usage telemetry is disabled.
         }
 
         public static void TraceSessionOpen(string protocol, string via)
         {
-            if (string.IsNullOrEmpty(via)) { return; }
-            MsAppCenterHelper.TraceSessionOpen(protocol, via);
+            // No-op: session telemetry is disabled.
         }
     }
 }

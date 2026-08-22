@@ -1,20 +1,23 @@
 ---
-name: Feature request
-about: Suggest an idea for this project
-title: ''
-labels: meta-feature
-assignees: VShawn
-
+name: 功能建议
+about: 提议新功能或改进
+title: "[Feature] "
+labels: enhancement
+assignees: ''
 ---
 
-**Is your feature request related to a problem? Please describe.**
-A clear and concise description of what the problem is. Ex. I'm always frustrated when [...]
+## 使用场景
 
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
+请描述要解决的问题、目标用户和实际使用场景。
 
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
+## 建议方案
 
-**Additional context**
-Add any other context or screenshots about the feature request here.
+请说明期望的行为、界面或数据流程。
+
+## 可选方案
+
+请列出已经考虑过的替代方案及其取舍。
+
+## 兼容性与安全影响
+
+如果建议涉及数据库、凭据、远程同步、自动更新或外部服务，请说明预期的兼容性和安全边界。

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Text;
@@ -44,7 +45,7 @@ namespace _1RM.Utils
             {
                 bool isXIpV4 = IsValidIPv4(ipX, out var xa4);
                 bool isYIpV4 = IsValidIPv4(ipY, out var ya4);
-                if (isXIpV4 && isYIpV4)
+                if (isXIpV4 && isYIpV4 && xa4 is not null && ya4 is not null)
                 {
                     var keyX = GetIpV4Key(xa4, portX);
                     var keyY = GetIpV4Key(ya4, portY);
@@ -58,7 +59,7 @@ namespace _1RM.Utils
             {
                 bool isXIpV6 = IsValidIPv6(ipX, out var xa6);
                 bool isYIpV6 = IsValidIPv6(ipY, out var ya6);
-                if (isXIpV6 && isYIpV6)
+                if (isXIpV6 && isYIpV6 && xa6 is not null && ya6 is not null)
                 {
                     var xkey = GetIpV6Key(xa6, portX);
                     var ykey = GetIpV6Key(ya6, portY);
@@ -87,7 +88,7 @@ namespace _1RM.Utils
             return (ip, port);
         }
 
-        private bool IsValidIPv4(string ip, out IPAddress? address)
+        private bool IsValidIPv4(string ip, [NotNullWhen(true)] out IPAddress? address)
         {
             address = null;
             if (ip.Split('.').Length != 4)
@@ -97,7 +98,7 @@ namespace _1RM.Utils
             return IPAddress.TryParse(ip, out address) && address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork;
         }
 
-        private bool IsValidIPv6(string ip, out IPAddress? address)
+        private bool IsValidIPv6(string ip, [NotNullWhen(true)] out IPAddress? address)
         {
             address = null;
             if (ip.Split(':').Length != 8)

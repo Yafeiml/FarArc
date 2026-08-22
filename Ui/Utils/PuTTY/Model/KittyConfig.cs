@@ -479,7 +479,6 @@ namespace _1RM.Utils.PuTTY.Model
 
 
 
-        [Obsolete]
         public static void WriteKittyDefaultConfig(string kittyFullName)
         {
             var fi = new FileInfo(kittyFullName);

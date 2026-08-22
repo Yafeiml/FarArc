@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -128,7 +128,7 @@ namespace _1RM.Model.ProtocolRunner
 
 
                 // Percent-encoding, some password may contain special characters, SFTP\XFTP need to encode them.
-                // see: https://github.com/1Remote/1Remote/issues/673
+                // see: original project issue #673
                 // ref: https://winscp.net/eng/docs/session_url#special
                 er.ApplySpecialCharacters(protocol);
             }

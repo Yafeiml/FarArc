@@ -2,27 +2,21 @@ namespace _1RM
 {
     internal static class Assert
     {
-        private const string APP_NAME_RAW = "1Remote";
+        private const string APP_NAME_RAW = "1RemoteNET10";
+        private const string APP_DISPLAY_NAME_RAW = "1Remote.NET10";
 #if DEBUG
         public const string APP_NAME = $"{APP_NAME_RAW}_Debug";
-#if FOR_MICROSOFT_STORE_ONLY
-        public const string APP_DISPLAY_NAME = $"{APP_NAME}(Store)_Debug";
-#else
-        public const string APP_DISPLAY_NAME = APP_NAME;
-#endif
+        public const string APP_DISPLAY_NAME = $"{APP_DISPLAY_NAME_RAW}_Debug";
 #else
         public const string APP_NAME = $"{APP_NAME_RAW}";
-#if FOR_MICROSOFT_STORE_ONLY
-        public const string APP_DISPLAY_NAME = $"{APP_NAME}(Store)";
-#else
-        public const string APP_DISPLAY_NAME = APP_NAME;
-#endif
+        public const string APP_DISPLAY_NAME = APP_DISPLAY_NAME_RAW;
 #endif
 
 
-        public const string MS_APP_CENTER_SECRET = "===REPLACE_ME_WITH_APP_CENTER_SECRET===";
-        public const string SENTRY_IO_DEN = "===REPLACE_ME_WITH_SENTRY_IO_DEN===";
-        public const string STRING_SALT = "===REPLACE_ME_WITH_SALT===";
-        public const string MS_STORE_PATH = "ms-windows-store://review/?productid=9PNMNF92JNFP";
+        public const string STRING_ENCRYPTION_KEY = "===REPLACE_ME_WITH_ENCRYPTION_KEY===";
+        public const string REPOSITORY_URL = "https://github.com/Yafeiml/1Remote";
+        public const string ISSUES_URL = "https://github.com/Yafeiml/1Remote/issues";
+        public const string RELEASES_URL = "https://github.com/Yafeiml/1Remote/releases";
+        public const string DOCUMENTATION_URL = REPOSITORY_URL + "#readme";
     }
 }

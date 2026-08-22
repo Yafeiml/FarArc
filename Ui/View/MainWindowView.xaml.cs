@@ -140,13 +140,16 @@ namespace _1RM.View
             SimpleLogHelper.Debug($"CommandFocusFilter_OnExecuted");
             if (Vm.IsShownList)
             {
-                if (Vm.ActiveServerViewModel.TagListViewModel == null)
+                var activeServerViewModel = Vm.ActiveServerViewModel;
+                if (activeServerViewModel == null)
+                    return;
+                if (activeServerViewModel.TagListViewModel == null)
                 {
                     Vm.MainFilterIsFocused = true;
                 }
                 else
                 {
-                    Vm.ActiveServerViewModel.TagsPanelViewModel.FilterIsFocused = true;
+                    activeServerViewModel.TagsPanelViewModel.FilterIsFocused = true;
                 }
             }
         }
@@ -167,15 +170,18 @@ namespace _1RM.View
                 }
                 else if (e.Key != Key.LeftCtrl && e.Key != Key.RightCtrl && vm.IsShownList)
                 {
-                    if (Vm.ActiveServerViewModel.TagListViewModel == null)
+                    var activeServerViewModel = Vm.ActiveServerViewModel;
+                    if (activeServerViewModel == null)
+                        return;
+                    if (activeServerViewModel.TagListViewModel == null)
                     {
                         Vm.MainFilterIsFocused = true;
                         Vm.MainFilterIsFocused = true;
                     }
                     else
                     {
-                        Vm.ActiveServerViewModel.TagsPanelViewModel.FilterIsFocused = true;
-                        Vm.ActiveServerViewModel.TagsPanelViewModel.FilterIsFocused = true;
+                        activeServerViewModel.TagsPanelViewModel.FilterIsFocused = true;
+                        activeServerViewModel.TagsPanelViewModel.FilterIsFocused = true;
                     }
                 }
             }

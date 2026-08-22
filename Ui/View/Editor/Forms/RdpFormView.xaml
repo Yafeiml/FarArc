@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="_1RM.View.Editor.Forms.RdpFormView"
+<UserControl x:Class="_1RM.View.Editor.Forms.RdpFormView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -95,7 +95,7 @@
                     </Grid>
                 </StackPanel>
             </Grid>
-            <Grid Style="{StaticResource EditorRowGrid}" 
+            <Grid Style="{StaticResource EditorRowGrid}"
                   Visibility="{Binding New.RdpFullScreenFlag, Converter={StaticResource ConverterEqual2Collapsed}, ConverterParameter={x:Static protocol:ERdpFullScreenFlag.Disable}}">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource EditorRowGridTitle}" Text=""></TextBlock>
@@ -103,7 +103,7 @@
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                             <Grid Style="{StaticResource EditorRowGridInput}" Width="Auto">
                                 <StackPanel>
-                                    <CheckBox Content="{DynamicResource 'New session always use full screen'}" 
+                                    <CheckBox Content="{DynamicResource 'New session always use full screen'}"
                                               IsChecked="{Binding New.IsConnWithFullScreen}">
                                         <CheckBox.Style>
                                             <Style TargetType="CheckBox" BasedOn="{StaticResource CheckBoxAccentStyle}">
@@ -117,7 +117,7 @@
                                             </Style>
                                         </CheckBox.Style>
                                     </CheckBox>
-                                    <CheckBox Content="{DynamicResource 'New session use full screen if the last session is full screen'}" 
+                                    <CheckBox Content="{DynamicResource 'New session use full screen if the last session is full screen'}"
                                               IsChecked="{Binding New.IsConnWithFullScreen, Converter={StaticResource ConverterBoolInverse}}">
                                         <CheckBox.Style>
                                             <Style TargetType="CheckBox" BasedOn="{StaticResource CheckBoxAccentStyle}">
@@ -131,11 +131,11 @@
                                             </Style>
                                         </CheckBox.Style>
                                     </CheckBox>
-                                    <CheckBox Content="{DynamicResource 'Display the connection bar when use the full screen'}" 
+                                    <CheckBox Content="{DynamicResource 'Display the connection bar when use the full screen'}"
                                               Margin="0 0 0 5"
                                               IsChecked="{Binding New.IsFullScreenWithConnectionBar}"></CheckBox>
-                                    <CheckBox Content="{DynamicResource 'Pin the connection bar by default'}" 
-                                              IsChecked="{Binding New.IsPinTheConnectionBarByDefault}" 
+                                    <CheckBox Content="{DynamicResource 'Pin the connection bar by default'}"
+                                              IsChecked="{Binding New.IsPinTheConnectionBarByDefault}"
                                               IsEnabled="{Binding New.IsFullScreenWithConnectionBar}"></CheckBox>
                                 </StackPanel>
                             </Grid>
@@ -156,7 +156,7 @@
                             <ComboBoxItem Content="{DynamicResource 'Custom resolution (stretch)'}"
                                           Visibility="{Binding New.RdpFullScreenFlag, Converter={StaticResource ConverterEqual2Collapsed}, ConverterParameter={x:Static protocol:ERdpFullScreenFlag.EnableFullAllScreens}}">
                             </ComboBoxItem>
-                            <ComboBoxItem Content="{DynamicResource 'Custom resolution (fixed)'}" 
+                            <ComboBoxItem Content="{DynamicResource 'Custom resolution (fixed)'}"
                                           Visibility="{Binding New.RdpFullScreenFlag, Converter={StaticResource ConverterEqual2Collapsed}, ConverterParameter={x:Static protocol:ERdpFullScreenFlag.EnableFullAllScreens}}">
                             </ComboBoxItem>
                             <ComboBoxItem Content="{DynamicResource 'Full-screen resolution (stretch)'}"
@@ -165,7 +165,7 @@
                             <ComboBoxItem Content="{DynamicResource 'Full-screen resolution (fixed)'}"
                                           Visibility="{Binding New.RdpFullScreenFlag, Converter={StaticResource ConverterEqual2Collapsed}, ConverterParameter={x:Static protocol:ERdpFullScreenFlag.Disable}}">
                             </ComboBoxItem>
-                            <ComboBoxItem Visibility="{Binding New.RdpWindowResizeMode, Converter={StaticResource ConverterEqual2Visible}, ConverterParameter={x:Null}}" 
+                            <ComboBoxItem Visibility="{Binding New.RdpWindowResizeMode, Converter={StaticResource ConverterEqual2Visible}, ConverterParameter={x:Null}}"
                                           Content="{Binding New.ServerEditorDifferentOptions}" />
                         </ComboBox>
                     </Grid>
@@ -197,13 +197,13 @@
             </Grid>
 
 
-            <Grid Style="{StaticResource EditorRowGrid}" 
+            <Grid Style="{StaticResource EditorRowGrid}"
                   Visibility="{Binding New.MstscModeEnabled, Converter={StaticResource ConverterBool2VisibleInv}}">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource Scale}"></TextBlock>
                     <Grid Style="{StaticResource EditorRowGridInput}" Width="Auto">
-                        <CheckBox HorizontalAlignment="Left" Margin="0 0 10 0" 
-                                  Content="{DynamicResource 'Follow system'}" 
+                        <CheckBox HorizontalAlignment="Left" Margin="0 0 10 0"
+                                  Content="{DynamicResource 'Follow system'}"
                                   IsChecked="{Binding New.IsScaleFactorFollowSystem}"></CheckBox>
                     </Grid>
                 </StackPanel>
@@ -271,7 +271,7 @@
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock Style="{StaticResource TextBlockBase}" TextWrapping="Wrap" Margin="0 0 5 0">
                                     <Run Text="{DynamicResource Enabled}"></Run>
-                                    <Hyperlink NavigateUri="https://1remote.github.io/usage/protocol/especial/rdp-in-mstsc-mode/" TextDecorations="{x:Null}" 
+                                    <Hyperlink NavigateUri="https://github.com/Yafeiml/1Remote#readme" TextDecorations="{x:Null}"
                                                controls1:HyperlinkHelper.IsOpenExternal="True">
                                         (?)
                                     </Hyperlink>
@@ -291,8 +291,8 @@
             <StackPanel Visibility="{Binding New.MstscModeEnabled, Converter={StaticResource ConverterBool2Visible}}">
                 <Grid Style="{StaticResource EditorRowGrid}">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Style="{StaticResource EditorRowGridTitle}" 
-                                   Text="{DynamicResource 'Additional settings'}" VerticalAlignment="Top" 
+                        <TextBlock Style="{StaticResource EditorRowGridTitle}"
+                                   Text="{DynamicResource 'Additional settings'}" VerticalAlignment="Top"
                                    Margin="0 7 30 0"></TextBlock>
                         <Grid Style="{StaticResource EditorRowGridInput}" Width="500">
                             <Border>
@@ -352,7 +352,7 @@
                         </Grid>
 
                         <TextBlock Style="{StaticResource TextBlockBase}" VerticalAlignment="Top" Margin="2 6 2 0">
-                            <Hyperlink NavigateUri="https://1remote.github.io/usage/protocol/especial/rdp-in-mstsc-mode/#additional-settings" TextDecorations="{x:Null}" 
+                            <Hyperlink NavigateUri="https://github.com/Yafeiml/1Remote#readme" TextDecorations="{x:Null}"
                                        controls1:HyperlinkHelper.IsOpenExternal="True">
                                 (?)
                             </Hyperlink>
@@ -381,7 +381,7 @@
             <Grid Style="{StaticResource EditorRowGrid}">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="/admin"></TextBlock>
-                    <CheckBox HorizontalAlignment="Right" Margin="0 0 10 0" 
+                    <CheckBox HorizontalAlignment="Right" Margin="0 0 10 0"
                               Content="{DynamicResource server_editor_advantage_admin}"
                               IsChecked="{Binding New.IsAdministrativePurposes}"></CheckBox>
                 </StackPanel>
@@ -527,8 +527,8 @@
 
             <Grid Style="{StaticResource EditorRowGrid}">
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Style="{StaticResource EditorRowGridTitle}" 
-                               Text="{DynamicResource 'Additional settings'}" VerticalAlignment="Top" 
+                    <TextBlock Style="{StaticResource EditorRowGridTitle}"
+                               Text="{DynamicResource 'Additional settings'}" VerticalAlignment="Top"
                                Margin="0 7 30 0"></TextBlock>
                     <StackPanel>
                         <StackPanel Orientation="Horizontal">
@@ -590,7 +590,7 @@
                             </Grid>
                             <!--TODO: Add a link to the documentation
                             <TextBlock VerticalAlignment="Top" Margin="2 0">
-                                <Hyperlink NavigateUri="https://1remote.github.io/usage/protocol/especial/rdp-in-mstsc-mode/#additional-settings" TextDecorations="{x:Null}" 
+                                <Hyperlink NavigateUri="https://github.com/Yafeiml/1Remote#readme" TextDecorations="{x:Null}"
                                            controls1:HyperlinkHelper.IsOpenExternal="True">
                                     (?)
                                 </Hyperlink>

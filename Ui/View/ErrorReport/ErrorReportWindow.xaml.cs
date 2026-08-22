@@ -9,7 +9,6 @@ using Shawn.Utils;
 using System.Windows;
 using System.Windows.Media.Animation;
 using _1RM.Utils;
-using Microsoft.AppCenter.Crashes;
 using Shawn.Utils.Wpf.Controls;
 using Shawn.Utils.Wpf.FileSystem;
 using Shawn.Utils.Wpf.PageHost;
@@ -98,20 +97,14 @@ namespace _1RM.View.ErrorReport
                 var platform = $"{osName} {osType} {osVersion} ({osRelease}) build {Environment.OSVersion.Version.Build}";
                 var attributes = Assembly.GetExecutingAssembly().CustomAttributes;
                 var framework = attributes.FirstOrDefault(a => a.AttributeType == typeof(TargetFrameworkAttribute));
-                var from = "";
-
-#if FOR_MICROSOFT_STORE_ONLY
-                from = "Microsoft store";
-#else
-                from = "EXE Release";
-#endif
+                const string from = "x64 ZIP Release";
 
                 sb.AppendLine("## Environment");
                 sb.AppendLine("");
                 sb.AppendLine("|     Component   |                       Version                      |");
                 sb.AppendLine("|:------------------|:--------------------------------------|");
                 sb.AppendLine($"|{Assert.APP_DISPLAY_NAME} | `{AppVersion.Version}({AppVersion.BuildDate})`({from})|");
-                sb.AppendLine($"|.NET Framework | `{framework?.NamedArguments?[0].TypedValue.Value?.ToString()}`    |");
+                sb.AppendLine($"|.NET target    | `{framework?.NamedArguments?[0].TypedValue.Value?.ToString()}`    |");
                 sb.AppendLine($"|CLR            | `{Environment.Version}`       |");
                 sb.AppendLine($"|OS             | `{platform}`                  |");
                 sb.AppendLine();
@@ -172,7 +165,7 @@ namespace _1RM.View.ErrorReport
         {
             try
             {
-                HyperlinkHelper.OpenUriBySystem("https://github.com/1Remote/1Remote/issues");
+                HyperlinkHelper.OpenUriBySystem(Assert.ISSUES_URL);
             }
             catch
             {
@@ -184,13 +177,7 @@ namespace _1RM.View.ErrorReport
         {
             try
             {
-                string mailto = string.Format("mailto:{0}?Subject={1}&Body={2}", "veckshawn@gmail.com", $"{Assert.APP_DISPLAY_NAME} error report.", "");
-#pragma warning disable CS0618
-#pragma warning disable SYSLIB0013 // 类型或成员已过时
-                mailto = Uri.EscapeUriString(mailto);
-#pragma warning restore SYSLIB0013 // 类型或成员已过时
-#pragma warning restore CS0618
-                HyperlinkHelper.OpenUriBySystem(mailto);
+                HyperlinkHelper.OpenUriBySystem(Assert.ISSUES_URL);
             }
             catch
             {

@@ -30,11 +30,7 @@ namespace _1RM.View.Utils
             {
                 return _cmdUpdate ??= new RelayCommand((o) =>
                 {
-#if FOR_MICROSOFT_STORE_ONLY
-                        HyperlinkHelper.OpenUriBySystem("ms-windows-store://review/?productid=9PNMNF92JNFP");
-#else
                     HyperlinkHelper.OpenUriBySystem(AboutPageViewModel.NewVersionUrl);
-#endif
                 });
             }
         }

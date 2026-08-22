@@ -1,30 +1,32 @@
 ---
-name: Bug report
-about: Create a report to help us improve
-title: ''
+name: 错误报告
+about: 报告可复现的问题
+title: "[Bug] "
 labels: bug
-assignees: VShawn
+assignees: ''
 ---
 
-**Describe the bug**
-A clear and concise description of what the bug is.
+## 问题描述
 
-**To Reproduce**
-Steps to reproduce the behavior:
-1. Go to '...'
-2. Click on '....'
-3. Scroll down to '....'
-4. See error
+请清楚、简洁地说明发生了什么，以及你原本期望的结果。
 
-**Expected behavior**
-A clear and concise description of what you expected to happen.
+## 复现步骤
 
-**Screenshots**
-If applicable, add screenshots to help explain your problem.
+1.
+2.
+3.
 
-**Desktop (please complete the following information):**
- - OS: [e.g. Win10 Pro 2004]
- - PRemoteM Version [e.g. 0.4.6.20071234]
+## 环境
 
-**Additional context**
-Add any other context about the problem here.
+- 1Remote.NET10 Release 标签：
+- Windows 版本：
+- 数据源：SQLite / MySQL / PostgreSQL
+- 连接协议：RDP / SSH / VNC / 其他
+
+## 日志与截图
+
+可附上已脱敏的日志或截图。**不要上传密码、私钥、完整连接字符串、真实服务器地址或未脱敏数据库。**
+
+## 补充信息
+
+如果问题涉及旧 1Remote 数据，请先说明；本项目不支持旧数据库无损升级。

@@ -1,279 +1,120 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Diagnostics;
+using System;
 using System.IO;
 using System.Linq;
-using com.github.xiangyuecn.rsacsharp;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using _1RM.Model.DAO;
 using _1RM.Model.Protocol;
 using _1RM.Model.Protocol.Base;
-using _1RM.Resources.Icons;
 using _1RM.Service;
-using Shawn.Utils.Wpf.Image;
+using _1RM.Service.DataSource.DAO;
+using _1RM.Service.DataSource.Model;
 
 namespace Tests.Service
 {
-    [TestClass()]
-    public class DataServiceTests
+    [TestClass]
+    [DoNotParallelize]
+    public sealed class DataServiceTests
     {
-        private DataService _dataService = null!;
-        private RDP _rdp = null!;
-        private SSH _ssh = null!;
-        private VNC _vnc = null!;
-        private LocalApp _app = null!;
-        private string _dbPath = "";
-        private string _ppkPath = "";
+        private string _testDirectory = null!;
+        private SqliteSource _dataSource = null!;
 
-        [TestMethod()]
-        public void DataServiceTest()
+        [TestInitialize]
+        public void Initialize()
         {
-            Init();
+            _testDirectory = Path.Combine(Path.GetTempPath(), "1Remote.Tests", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(_testDirectory);
 
-            Debug.Assert(_dataService != null);
-            Debug.Assert(_dbPath != null);
-            Debug.Assert(_ppkPath != null);
-            _dataService.Database_OpenConnection(DatabaseType.Sqlite, DbExtensions.GetSqliteConnectionString(_dbPath));
-            Assert.IsTrue(_dataService.Database_SelfCheck() == EnumDbStatus.OK);
-
-
-            _dataService.Database_InsertServer(_rdp!);
-            _dataService.Database_InsertServer(_ssh!);
-            _dataService.Database_InsertServer(_vnc!);
-            _dataService.Database_InsertServer(_app!);
-
-
-            // Database_GetServers
+            _dataSource = new SqliteSource("Tests")
             {
-                var data = _dataService.Database_GetServers();
-                Assert.IsTrue(data.Count == 4);
-                var first = data.First(x => x is RDP) as RDP;
-                Assert.IsTrue(first != null);
-                Assert.IsTrue(_rdp.DisplayName == first!.DisplayName);
-                Assert.IsTrue(_rdp.UserName == first!.UserName);
-                Assert.IsTrue(_rdp.Password == first!.Password);
-                Assert.IsTrue(_rdp.Address == first!.Address);
-                Assert.IsTrue(_rdp.CommandAfterDisconnected == first!.CommandAfterDisconnected);
-            }
+                Path = Path.Combine(_testDirectory, "test.db")
+            };
 
+            var status = _dataSource.Database_SelfCheck();
+            Assert.AreEqual(EnumDatabaseStatus.OK, status.Status, status.ExtendInfo);
+        }
 
-            // Database_EncryptionKey
+        [TestCleanup]
+        public void Cleanup()
+        {
+            _dataSource?.Database_CloseConnection();
+            System.Data.SQLite.SQLiteConnection.ClearAllPools();
+
+            if (Directory.Exists(_testDirectory))
             {
-                // gen rsa
-                var rsa = new RSA(2048);
-                // save key file
-                var privateKeyContent = rsa.ToPEM_PKCS1();
-                File.WriteAllText(_ppkPath, privateKeyContent);
-
-                _dataService.Database_SetEncryptionKey(_ppkPath, privateKeyContent, new List<ProtocolBase>());
-                var path = _dataService.Database_GetPrivateKeyPath();
-                var pk = _dataService.Database_GetPublicKey();
-                Assert.IsTrue(_ppkPath == path);
-                Assert.IsTrue(RSA.CheckPrivatePublicKeyMatch(_ppkPath, pk) == RSA.EnumRsaStatus.NoError);
-                Assert.IsTrue(string.IsNullOrEmpty(_dataService.Database_GetPrivateKeyPath()) == false);
-                Assert.IsTrue(_dataService.Database_SelfCheck() == EnumDbStatus.OK);
-
-                // data encrypt
-                Assert.IsTrue("test" != _dataService.Encrypt("test"));
-                Assert.IsTrue("test" == _dataService.DecryptOrReturnOriginalString(_dataService.Encrypt("test")));
-                var data = _dataService.Database_GetServers();
-                Assert.IsTrue(data.Count == 4);
-                var first = data.First(x => x is SSH);
-                Assert.IsTrue(first != null);
-                {
-                    _dataService.EncryptToDatabaseLevel(ref first!);
-                    if (first is SSH r)
-                    {
-                        Assert.IsTrue(_ssh.DisplayName != r.DisplayName);
-                        Assert.IsTrue(_ssh.UserName != r.UserName);
-                        Assert.IsTrue(_ssh.Password != r.Password);
-                        Assert.IsTrue(_ssh.Address != r.Address);
-                        Assert.IsTrue(_ssh.PrivateKey != r.PrivateKey);
-                        Assert.IsTrue(_ssh.CommandAfterDisconnected == r.CommandAfterDisconnected);
-                        Assert.IsTrue(_ssh.PrivateKey == _dataService.DecryptOrReturnOriginalString(r.PrivateKey));
-                        Assert.IsTrue(_ssh.Password == _dataService.DecryptOrReturnOriginalString(r.Password));
-                    }
-                }
-                {
-                    _dataService.DecryptToRamLevel(ref first);
-                    if (first is SSH r)
-                    {
-                        Assert.IsTrue(_ssh.DisplayName == r.DisplayName);
-                        Assert.IsTrue(_ssh.UserName == r.UserName);
-                        Assert.IsTrue(_ssh.Password != r.Password);
-                        Assert.IsTrue(_ssh.Address == r.Address);
-                        Assert.IsTrue(_ssh.PrivateKey != r.PrivateKey);
-                        Assert.IsTrue(_ssh.CommandAfterDisconnected == r.CommandAfterDisconnected);
-                    }
-                }
-                {
-                    _dataService.DecryptToConnectLevel(ref first);
-                    if (first is SSH r)
-                    {
-                        Assert.IsTrue(_ssh.DisplayName == r.DisplayName);
-                        Assert.IsTrue(_ssh.UserName == r.UserName);
-                        Assert.IsTrue(_ssh.Password == r.Password);
-                        Assert.IsTrue(_ssh.Address == r.Address);
-                        Assert.IsTrue(_ssh.PrivateKey == r.PrivateKey);
-                        Assert.IsTrue(_ssh.CommandAfterDisconnected == r.CommandAfterDisconnected);
-                    }
-                }
-
-
-                _dataService.Database_SetEncryptionKey("", "", new List<ProtocolBase>());
-                path = _dataService.Database_GetPrivateKeyPath();
-                pk = _dataService.Database_GetPublicKey();
-                Assert.IsTrue("" == path);
-                Assert.IsTrue("" == pk);
-                Assert.IsTrue(string.IsNullOrEmpty(_dataService.Database_GetPrivateKeyPath()) == true);
-                Assert.IsTrue(_dataService.Database_SelfCheck() == EnumDbStatus.OK);
-            }
-
-
-            // Database_UpdateDelete
-            {
-                Init();
-
-                var data = _dataService.Database_GetServers();
-                Assert.IsTrue(data.Count == 4);
-                var first = data.First(x => x is RDP) as RDP;
-                Assert.IsTrue(first != null);
-                _rdp.Id = first!.Id;
-                _rdp.DisplayName = "1";
-                _rdp.Address = "2";
-                _rdp.Password = "3";
-                _rdp.UserName = "4";
-                _dataService.Database_UpdateServer(_rdp);
-                data = _dataService.Database_GetServers();
-                Assert.IsTrue(data.Count == 4);
-                first = data.First(x => x is RDP) as RDP;
-                Assert.IsTrue(first != null);
-                Assert.IsTrue(_rdp.DisplayName == first!.DisplayName);
-                Assert.IsTrue(_rdp.UserName == first!.UserName);
-                Assert.IsTrue(_rdp.Password == first!.Password);
-                Assert.IsTrue(_rdp.Address == first!.Address);
-                Assert.IsTrue(_rdp.CommandAfterDisconnected == first!.CommandAfterDisconnected);
-            }
-
-
-            {
-                Init();
-
-                var data = _dataService.Database_GetServers();
-                Assert.IsTrue(data.Count == 4);
-                var first = data.First(x => x is RDP) as RDP;
-                Assert.IsTrue(first != null);
-                _rdp.Id = first!.Id;
-                _rdp.DisplayName = "2";
-                _rdp.Address = "3";
-                _rdp.Password = "4";
-                _rdp.UserName = "5";
-                var second = data.First(x => x is SSH) as SSH;
-                _ssh.Id = second!.Id;
-                _ssh.DisplayName = "SS2";
-                _ssh.Address = "XXXXX";
-                Assert.IsTrue(_dataService.Database_UpdateServer(new List<ProtocolBase>() { _rdp, _ssh }));
-                data = _dataService.Database_GetServers();
-                Assert.IsTrue(data.Count == 4);
-                first = data.First(x => x is RDP) as RDP;
-                Assert.IsTrue(first != null);
-                Assert.IsTrue(_rdp.DisplayName == first!.DisplayName);
-                Assert.IsTrue(_rdp.UserName == first!.UserName);
-                Assert.IsTrue(_rdp.Password == first!.Password);
-                Assert.IsTrue(_rdp.Address == first!.Address);
-                Assert.IsTrue(_rdp.CommandAfterDisconnected == first!.CommandAfterDisconnected);
-                second = data.First(x => x is SSH) as SSH;
-                Assert.IsTrue(second != null);
-                Assert.IsTrue(_ssh.DisplayName == second!.DisplayName);
-                Assert.IsTrue(_ssh.Address == second!.Address);
-
-                _dataService.Database_DeleteServer(_rdp.Id);
-                data = _dataService.Database_GetServers();
-                Assert.IsTrue(data.Count == 3);
-                Assert.IsTrue(data.All(x => x.Id != _rdp.Id));
-
-
-                _dataService.Database_DeleteServer(new List<string>() { _rdp.Id, _ssh.Id });
-                data = _dataService.Database_GetServers();
-                Assert.IsTrue(data.Count == 2);
-                Assert.IsTrue(data.All(x => x.Id != _ssh.Id));
-            }
-
-            {
-                _dataService.Database_InsertServer(new List<ProtocolBase>() { _rdp, _ssh });
-                var data = _dataService.Database_GetServers();
-                Assert.IsTrue(data.Count == 4);
-            }
-
-            _dataService.Database_CloseConnection();
-
-            if (Directory.Exists(nameof(DataServiceTests)))
-            {
-                Directory.Delete(nameof(DataServiceTests), true);
+                Directory.Delete(_testDirectory, recursive: true);
             }
         }
 
-        public void MockData()
+        [TestMethod]
+        public void SqliteDataSource_CanCreateReadUpdateDeleteAndProtectSecrets()
         {
-            var r = new Random(DateTime.Now.Millisecond);
-            _rdp = new RDP()
+            var rdp = new RDP
             {
                 DisplayName = "RDP test",
-                UserName = "username",
-                Password = "password",
-                Address = "123.123.123.123",
-                IconBase64 = ServerIcons.Instance.Icons[r.Next(0, ServerIcons.Instance.Icons.Count)].ToBase64(),
-                Tags = new List<string>() { "t1", "t2", "rdp" },
+                Address = "192.0.2.10",
+                UserName = "rdp-user",
+                Password = "rdp-password"
             };
-            _ssh = new SSH()
+            var ssh = new SSH
             {
-                DisplayName = "Ssh test",
-                UserName = "username",
-                Password = "password",
-                Address = "123.123.123.123",
-                PrivateKey = "PrivateKey",
-                IconBase64 = ServerIcons.Instance.Icons[r.Next(0, ServerIcons.Instance.Icons.Count)].ToBase64(),
-                Tags = new List<string>() { "t1", "t2", "ssh" },
+                DisplayName = "SSH test",
+                Address = "192.0.2.20",
+                UserName = "ssh-user",
+                PrivateKey = "private-key"
             };
-            _vnc = new VNC()
+            var vnc = new VNC
             {
                 DisplayName = "VNC test",
-                UserName = "username",
-                Password = "password",
-                IconBase64 = ServerIcons.Instance.Icons[r.Next(0, ServerIcons.Instance.Icons.Count)].ToBase64(),
-                Tags = new List<string>() { "t1", "t2", "vnc" },
+                Address = "192.0.2.30",
+                Password = "vnc-password"
             };
-            _app = new LocalApp()
+            var localApp = new LocalApp
             {
-                Arguments = "123",
-                DisplayName = "AppTest",
-                ExePath = "xxxx.exe",
-                IconBase64 = ServerIcons.Instance.Icons[r.Next(0, ServerIcons.Instance.Icons.Count)].ToBase64(),
-                Tags = new List<string>() { "t1", "t2" },
+                DisplayName = "App test",
+                ExePath = "example.exe"
             };
-        }
 
-        public void Init()
-        {
-            if (_dataService != null) return;
-            lock (this)
+            ProtocolBase[] servers = [rdp, ssh, vnc, localApp];
+            foreach (var server in servers)
             {
-                if (_dataService != null) return;
-                if (Directory.Exists(nameof(DataServiceTests)))
-                {
-                    Directory.Delete(nameof(DataServiceTests), true);
-                }
-
-                Directory.CreateDirectory(nameof(DataServiceTests));
-                _dbPath = nameof(DataServiceTests) + "/test.db";
-                _ppkPath = new FileInfo(nameof(DataServiceTests) + "/test.ppk").FullName;
-                if (File.Exists(_dbPath)) File.Delete(_dbPath);
-                if (File.Exists(_ppkPath)) File.Delete(_ppkPath);
-                _dataService = new DataService();
-                _dataService.Database_OpenConnection(DatabaseType.Sqlite, DbExtensions.GetSqliteConnectionString(_dbPath));
-                MockData();
-                _dataService.Database_CloseConnection();
+                var insert = _dataSource.Database_InsertServer(server);
+                Assert.IsTrue(insert.IsSuccess, insert.ErrorInfo);
+                Assert.IsFalse(string.IsNullOrWhiteSpace(server.Id));
             }
+
+            var stored = _dataSource.GetDataBase().GetServers();
+            Assert.IsTrue(stored.IsSuccess, stored.ErrorInfo);
+            Assert.HasCount(4, stored.Items);
+
+            var storedRdp = stored.Items.OfType<RDP>().Single();
+            Assert.AreNotEqual(rdp.Password, storedRdp.Password);
+            StringAssert.StartsWith(storedRdp.Password, "rmsec:1:");
+            storedRdp.DecryptToConnectLevel();
+            Assert.AreEqual(rdp.Password, storedRdp.Password);
+
+            var storedSsh = stored.Items.OfType<SSH>().Single();
+            Assert.AreNotEqual(ssh.PrivateKey, storedSsh.PrivateKey);
+
+            storedSsh.DecryptToConnectLevel();
+            Assert.AreEqual(ssh.PrivateKey, storedSsh.PrivateKey);
+
+            rdp.DisplayName = "RDP updated";
+            rdp.Address = "198.51.100.10";
+            var update = _dataSource.Database_UpdateServer(rdp);
+            Assert.IsTrue(update.IsSuccess, update.ErrorInfo);
+
+            var updated = _dataSource.GetDataBase().GetServers();
+            Assert.IsTrue(updated.IsSuccess, updated.ErrorInfo);
+            var updatedRdp = updated.Items.OfType<RDP>().Single();
+            Assert.AreEqual(rdp.DisplayName, updatedRdp.DisplayName);
+            Assert.AreEqual(rdp.Address, updatedRdp.Address);
+
+            var delete = _dataSource.Database_DeleteServer([rdp.Id, ssh.Id]);
+            Assert.IsTrue(delete.IsSuccess, delete.ErrorInfo);
+
+            var remaining = _dataSource.GetDataBase().GetServers();
+            Assert.IsTrue(remaining.IsSuccess, remaining.ErrorInfo);
+            Assert.HasCount(2, remaining.Items);
+            Assert.IsFalse(remaining.Items.Any(x => x.Id == rdp.Id || x.Id == ssh.Id));
         }
     }
 }

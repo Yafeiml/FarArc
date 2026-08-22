@@ -27,7 +27,7 @@ namespace _1RM.Service.DataSource.Model
             set => SetAndNotifyIfChanged(ref _port, value);
         }
 
-        private string _databaseName = "1Remote";
+        private string _databaseName = "1RemoteNET10";
         public string DatabaseName
         {
             get => _databaseName;

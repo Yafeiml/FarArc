@@ -78,7 +78,7 @@ public class CredentialViewModel : NotifyPropertyChangedBaseScreen
         Credentials = credentials;
     }
 
-    private string _strBtnUseCredentialsVault;
+    private string _strBtnUseCredentialsVault = "";
     public string StrBtnUseCredentialsVault
     {
         get => _strBtnUseCredentialsVault;

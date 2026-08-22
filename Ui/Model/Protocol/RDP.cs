@@ -1012,7 +1012,12 @@ namespace _1RM.Model.Protocol
 
             // for those people using 2+ monitors in different scale factors, we will try "mstsc.exe" instead of internal runner.
             // check if screens are in different scale factors
-            int factor = (int)(new ScreenInfoEx(System.Windows.Forms.Screen.PrimaryScreen).ScaleFactor * 100);
+            var primaryScreen = System.Windows.Forms.Screen.PrimaryScreen;
+            if (primaryScreen is null)
+            {
+                return false;
+            }
+            int factor = (int)(new ScreenInfoEx(primaryScreen).ScaleFactor * 100);
             if (IsThisTimeConnWithFullScreen()
                 && System.Windows.Forms.Screen.AllScreens.Length > 1
                 && RdpFullScreenFlag == ERdpFullScreenFlag.EnableFullAllScreens

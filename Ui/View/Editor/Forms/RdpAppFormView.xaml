@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="_1RM.View.Editor.Forms.RdpAppFormView"
+<UserControl x:Class="_1RM.View.Editor.Forms.RdpAppFormView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -25,7 +25,7 @@
                 </Grid>
                 <TextBlock Style="{StaticResource EditorRowGridTitleFollowing}" Width="60" Text="{DynamicResource Port}"></TextBlock>
                 <Grid Style="{StaticResource EditorRowGridInput}">
-                    <TextBox MinWidth="50" 
+                    <TextBox MinWidth="50"
                              Text="{Binding New.Port, UpdateSourceTrigger=PropertyChanged, ValidatesOnDataErrors=True, NotifyOnValidationError=True, ValidatesOnExceptions=True, ValidatesOnNotifyDataErrors=True}"
                              HorizontalAlignment="Left"
                              InputMethod.IsInputMethodEnabled="False"
@@ -87,7 +87,7 @@
                     <StackPanel>
                         <TextBlock Style="{StaticResource TextBlockBase}" TextWrapping="Wrap" Foreground="{DynamicResource BackgroundTextBrush}" Text="Note: You can not register a RemoteApp directly, you have to config it on the server side first, or you will get the error 'The following RemoteApp program is not in the list of authorized programs'."></TextBlock>
                         <TextBlock Style="{StaticResource TextBlockBase}">
-                                <Hyperlink NavigateUri="https://1remote.github.io/usage/protocol/especial/remoteapp/" TextDecorations="{x:Null}" controls:HyperlinkHelper.IsOpenExternal="True">
+                                <Hyperlink NavigateUri="https://github.com/Yafeiml/1Remote#readme" TextDecorations="{x:Null}" controls:HyperlinkHelper.IsOpenExternal="True">
                                     check how to config.
                                 </Hyperlink>
                         </TextBlock>
@@ -137,8 +137,8 @@
             <StackPanel>
                 <Grid Style="{StaticResource EditorRowGrid}">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Style="{StaticResource EditorRowGridTitle}" 
-                                       Text="{DynamicResource 'Additional settings'}" VerticalAlignment="Top" 
+                        <TextBlock Style="{StaticResource EditorRowGridTitle}"
+                                       Text="{DynamicResource 'Additional settings'}" VerticalAlignment="Top"
                                        Margin="0 7 30 0"></TextBlock>
                         <Grid Style="{StaticResource EditorRowGridInput}">
                             <Border>
@@ -197,7 +197,7 @@
                         </Grid>
 
                         <TextBlock Style="{StaticResource TextBlockBase}" VerticalAlignment="Top" Margin="2 0">
-                                <Hyperlink NavigateUri="https://1remote.github.io/usage/protocol/especial/rdp-in-mstsc-mode/#additional-settings" TextDecorations="{x:Null}" 
+                                <Hyperlink NavigateUri="https://github.com/Yafeiml/1Remote#readme" TextDecorations="{x:Null}"
                                            controls:HyperlinkHelper.IsOpenExternal="True">
                                     (?)
                                 </Hyperlink>

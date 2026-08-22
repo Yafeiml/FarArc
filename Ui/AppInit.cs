@@ -18,7 +18,6 @@ using _1RM.View.Settings.General;
 using _1RM.View.Utils;
 using System.Collections.Generic;
 using _1RM.Utils.PuTTY.Model;
-using _1RM.Utils.PuTTY.Model;
 using _1RM.Utils.Tracing;
 
 namespace _1RM
@@ -47,7 +46,7 @@ namespace _1RM
                         File.WriteAllText(txt, txt);
                         File.Delete(txt);
                     }
-                    catch (Exception e)
+                    catch (Exception)
                     {
                         flag = false;
                     }
@@ -105,8 +104,8 @@ namespace _1RM
         public static void Init()
         {
             SimpleLogHelper.WriteLogLevel = SimpleLogHelper.EnumLogLevel.Disabled;
-            // Set salt by github action with repository secret
-            UnSafeStringEncipher.Init(Assert.STRING_SALT);
+            // A release build injects portable key material from a repository secret.
+            UnSafeStringEncipher.Init(Assert.STRING_ENCRYPTION_KEY);
             Directory.SetCurrentDirectory(AppDomain.CurrentDomain.BaseDirectory); // in case user start app in a different working dictionary.
             UnifyTracing.Init();
         }
@@ -140,13 +139,6 @@ namespace _1RM
                     bool forcePortable = File.Exists(AppPathHelper.FORCE_INTO_PORTABLE_MODE);
                     bool forceAppData = File.Exists(AppPathHelper.FORCE_INTO_APPDATA_MODE);
                     bool permissionForPortable = CheckAllPathsPermission(portablePaths, portableProfilePathExisted || forcePortable, forcePortable);
-#if FOR_MICROSOFT_STORE_ONLY
-                    forceAppData = true;
-                    forcePortable = false;
-                    permissionForPortable = false;
-#endif
-
-
                     ProfileStorage? defaultStorage = null; // default mode, if is null, user can select `portable` or `app data` in guidance view.
                     if (permissionForPortable)
                     {
@@ -357,17 +349,9 @@ namespace _1RM
                             { $"App start with - Windows Hello Enabled", $"{await SecondaryVerificationHelper.GetEnabled()}" },
                             { $"App start with - Language", $"{ConfigurationServiceObj.General.CurrentLanguageCode}" },
                         };
-#if FOR_MICROSOFT_STORE_ONLY
-                kys.Add("Distributor", $"{Assert.APP_NAME} MS Store");
-#else
                         kys.Add("Distributor", $"{Assert.APP_NAME} Exe");
-#endif
 
-#if NETFRAMEWORK
-                kys.Add($"App start with - Net", $"4.8");
-#else
-                        kys.Add($"App start with - Net", $"6.x");
-#endif
+                        kys.Add("App start with - Net", ".NET 10");
                         UnifyTracing.TraceSpecial(kys);
                     }
                     catch (Exception ex)

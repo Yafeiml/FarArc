@@ -1,0 +1,42 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net10.0-windows</TargetFramework>
+		<UseWPF>true</UseWPF>
+		<UseWindowsForms>true</UseWindowsForms>
+        <LangVersion>latest</LangVersion>
+		<ImplicitUsings>disable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+	</PropertyGroup>
+
+	<ItemGroup>
+		<None Remove="Controls\ColorPickerWPF\colorpicker1.png" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<PackageReference Include="Microsoft-WindowsAPICodePack-Shell" Version="1.1.5" />
+		<PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<ProjectReference Include="..\Shawn.Utils\Shawn.Utils.csproj" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Resource Include="Controls\ColorPickerWPF\colorpicker1.png" />
+	</ItemGroup>
+
+	<ItemGroup>
+		<Page Update="Controls\ColorPickerWPF\ColorPickerControl4Popup.xaml">
+			<SubType>Designer</SubType>
+		</Page>
+		<Page Update="Controls\ColorPickerWPF\ColorPickRowPopup.xaml">
+			<SubType>Designer</SubType>
+		</Page>
+		<Page Update="Controls\ColorPickerWPF\SliderRow.xaml">
+			<SubType>Designer</SubType>
+		</Page>
+	</ItemGroup>
+
+</Project>

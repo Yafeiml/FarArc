@@ -294,9 +294,6 @@ namespace _1RM.View
                 }
                 ShowMe();
             };
-#if FOR_MICROSOFT_STORE_ONLY
-            SetSelfStartingHelper.SetSelfStartByStartupTask(Assert.APP_NAME, null);
-#endif
             OnMainWindowViewLoaded?.Invoke();
 
             //var vm = new _1RM.View.Utils.MessageBoxPageViewModel();
@@ -422,7 +419,8 @@ namespace _1RM.View
                 return _cmdReOrder ??= new RelayCommand((o) =>
                 {
                     SetServerOrderBy(o);
-                    ActiveServerViewModel.ApplySort();
+                    if (ActiveServerViewModel is { } activeServerViewModel)
+                        activeServerViewModel.ApplySort();
                     if (this.View is MainWindowView v)
                         v.PopupMenu.IsOpen = false;
                 });

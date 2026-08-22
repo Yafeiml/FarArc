@@ -27,10 +27,10 @@ if ($preRelease -eq "" -and $build -eq 0) {
 # Set the current directory back to the original location
 Set-Location $originalDirectory
 
-# Write-Output $versionString
-# Write-Output "::set-output name=Version::$versionString"
-"BuildVersion=$versionString" >> $env:GITHUB_ENV
-"PreRelease=$preRelease" >> $env:GITHUB_ENV
+if (![string]::IsNullOrWhiteSpace($env:GITHUB_ENV)) {
+    "BuildVersion=$versionString" >> $env:GITHUB_ENV
+    "PreRelease=$preRelease" >> $env:GITHUB_ENV
+}
 
-# echo "Version=$versionString" | Out-File -FilePath $Env:GITHUB_ENV -Encoding utf8 -Append
+Write-Output $versionString
 

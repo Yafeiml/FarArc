@@ -1,25 +1,14 @@
 ﻿#define SHORTCUT_METHOD
 #define REGISTRY_METHOD
 
-#if FOR_MICROSOFT_STORE_ONLY
-#undef SHORTCUT_METHOD
-#undef REGISTRY_METHOD
-#define STORE_UWP_METHOD
-#endif
-
 using System;
 using System.Diagnostics;
 using _1RM.Utils.Tracing;
-#if STORE_UWP_METHOD
-using System.Threading.Tasks;
-using Windows.ApplicationModel;
-#else
 using System.IO;
 using System.Linq;
 using _1RM.Service;
 using _1RM.Utils.WindowsApi.WindowsShortcutFactory;
 using Shawn.Utils;
-#endif
 
 
 namespace _1RM.Utils
@@ -199,59 +188,6 @@ namespace _1RM.Utils
 #endif
 
 
-#if STORE_UWP_METHOD
-        private static StartupTask? _startupTask = null;
-        private static bool _isStartupTaskStateEnable = false;
-        public static async void SetSelfStartByStartupTask(string appName, bool? isSetSelfStart = null)
-        {
-#if !DEBUG
-            _startupTask ??= await StartupTask.GetAsync(appName); // Pass the task ID you specified in the appxmanifest file
-            switch (_startupTask.State)
-            {
-                case StartupTaskState.Disabled:
-                    if (isSetSelfStart == true)
-                    {
-                        // Task is disabled but can be enabled.
-                        var newState = await _startupTask.RequestEnableAsync(); // ensure that you are on a UI thread when you call RequestEnableAsync()
-                        Debug.WriteLine("Request to enable startup, result = {0}", newState);
-                        _isStartupTaskStateEnable = true;
-                    }
-                    else
-                    {
-                        _isStartupTaskStateEnable = false;
-                    }
-
-                    break;
-                case StartupTaskState.DisabledByUser:
-                case StartupTaskState.DisabledByPolicy:
-                    _isStartupTaskStateEnable = false;
-                    if (isSetSelfStart == true)
-                    {
-                        // Task is disabled and user must enable it manually.
-                        MessageBoxHelper.Warning("You have disabled this app's ability to run " +
-                                        "as soon as you sign in, but if you change your mind, " +
-                                        "you can enable this in the Startup tab in Task Manager.",
-                            "Warning");
-                    }
-                    break;
-                case StartupTaskState.Enabled:
-                    if (isSetSelfStart == false)
-                    {
-                        _startupTask.Disable();
-                        _isStartupTaskStateEnable = false;
-                    }
-                    else
-                    {
-                        _isStartupTaskStateEnable = true;
-                    }
-                    break;
-            }
-#endif
-        }
-
-
-#endif
-
         public static void SetSelfStart(bool isInstall, string appName)
         {
 #if REGISTRY_METHOD
@@ -280,14 +216,6 @@ namespace _1RM.Utils
             }
 #endif
 
-#if STORE_UWP_METHOD
-            Task.Factory.StartNew(() =>
-            {
-                SetSelfStartingHelper.SetSelfStartByStartupTask(appName, isInstall);
-            }).Wait();
-            if (isInstall)
-                return;
-#endif
             return;
         }
 
@@ -316,9 +244,6 @@ namespace _1RM.Utils
             }
 #endif
 
-#if STORE_UWP_METHOD
-            flag |= _isStartupTaskStateEnable;
-#endif
             return flag;
         }
     }

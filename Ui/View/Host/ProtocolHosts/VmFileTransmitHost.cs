@@ -557,21 +557,22 @@ namespace _1RM.View.Host.ProtocolHosts
             {
                 return _cmdEndRenaming ??= new RelayCommand(async (o) =>
                 {
-                    if (Trans?.IsConnected() != true)
+                    ITransmitter? trans = Trans;
+                    if (trans?.IsConnected() != true)
                         return;
                     if (RemoteItems.Any(x => x.IsRenaming == true))
                     {
                         foreach (var item in RemoteItems.Where(x => x.IsRenaming == true))
                         {
                             var newPath = CurrentPath + "/" + item.Name;
-                            if (string.IsNullOrEmpty(item.FullName) || (Trans != null && await Trans.Exists(item.FullName) == false))
+                            if (string.IsNullOrEmpty(item.FullName) || await trans.Exists(item.FullName) == false)
                             {
                                 // add
                                 if (item.IsDirectory)
                                 {
                                     try
                                     {
-                                        await Trans.CreateDirectory(newPath);
+                                        await trans.CreateDirectory(newPath);
                                         IoMessageLevel = IoMessageLevelNormal;
                                         IoMessage = $"Create folder {newPath}";
                                     }
@@ -587,7 +588,7 @@ namespace _1RM.View.Host.ProtocolHosts
                                 // edit
                                 try
                                 {
-                                    await Trans.RenameFile(item.FullName, newPath);
+                                    await trans.RenameFile(item.FullName, newPath);
                                     IoMessageLevel = IoMessageLevelNormal;
                                     IoMessage = $"Move {item.FullName} => {newPath}";
                                 }

@@ -163,14 +163,15 @@ namespace _1RM.Service
                 {
                     var c = new ProtocolSettings();
                     var jObject = JObject.Parse(jsonStr);
-                    if (jObject["SelectedRunnerName"] == null || jObject["Runners"] == null)
+                    var selectedRunnerName = jObject["SelectedRunnerName"];
+                    var runners = jObject["Runners"] as JArray;
+                    if (selectedRunnerName == null || runners == null)
                     {
                         return null;
                     }
-                    c.SelectedRunnerName = jObject["SelectedRunnerName"]!.ToString();
+                    c.SelectedRunnerName = selectedRunnerName.ToString();
 
                     // 读取 Runners 数组
-                    var runners = (JArray)jObject["Runners"];
                     foreach (var runnerJObj in runners)
                     {
                         var runnerJson = runnerJObj.ToString();
@@ -190,7 +191,7 @@ namespace _1RM.Service
                         }
                     }
                 }
-                catch (Exception e)
+                catch (Exception)
                 {
                     // ignored
                 }

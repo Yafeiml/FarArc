@@ -148,7 +148,8 @@ namespace _1RM.Model.ProtocolRunner
         [JsonIgnore]
         public List<string> MarcoNames { get; set; } = new();
 
-        [Obsolete]
+        // Kept for backward-compatible deserialization and migration of existing runner settings.
+        // New settings should use ArgumentsForPrivateKey and the typed properties above.
         public Dictionary<string, string> Params = new Dictionary<string, string>();
     }
 }

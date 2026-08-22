@@ -4,7 +4,6 @@ using System.Windows.Controls;
 using _1RM.Utils;
 using _1RM.Utils.PuTTY;
 using _1RM.Utils.PuTTY.Model;
-using _1RM.Utils.PuTTY.Model;
 using Shawn.Utils.Wpf.FileSystem;
 
 namespace _1RM.View.Editor.Forms

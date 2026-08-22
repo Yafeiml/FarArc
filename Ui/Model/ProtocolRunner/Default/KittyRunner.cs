@@ -17,13 +17,11 @@ using Shawn.Utils;
 
 namespace _1RM.Model.ProtocolRunner.Default
 {
-    [Obsolete]
     public class KittyRunner : InternalExeRunner
     {
         public new static string Name = "Built-in KiTTY";
 
         [JsonConstructor]
-        [Obsolete]
         public KittyRunner(string ownerProtocolName) : base(ownerProtocolName)
         {
             base._name = Name;

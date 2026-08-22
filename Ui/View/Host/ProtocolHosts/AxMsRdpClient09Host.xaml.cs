@@ -1,4 +1,4 @@
-﻿using _1RM.Model;
+using _1RM.Model;
 using _1RM.Model.Protocol;
 using _1RM.Service.Locality;
 using _1RM.Utils;
@@ -31,7 +31,10 @@ namespace _1RM.View.Host.ProtocolHosts
         {
             try
             {
-                ((IMsRdpExtendedSettings)axHost.GetOcx()).set_Property(propertyName, ref value);
+                if (axHost.GetOcx() is not IMsRdpExtendedSettings settings)
+                    throw new InvalidOperationException("The RDP ActiveX control does not expose IMsRdpExtendedSettings.");
+
+                settings.set_Property(propertyName, ref value);
             }
             catch (Exception e)
             {
@@ -111,10 +114,10 @@ namespace _1RM.View.Host.ProtocolHosts
                 Header = "Ctrl + Alt + Del",
                 Command = new RelayCommand((o) =>
                 {
-                    if (_rdpClient != null)
+                    if (_rdpClient?.GetOcx() is { } ocx)
                     {
                         _rdpClient.Focus();
-                        new MsRdpClientNonScriptableWrapper(_rdpClient.GetOcx()).SendKeys(
+                        new MsRdpClientNonScriptableWrapper(ocx).SendKeys(
                             new int[] { 0x1d, 0x38, 0x53, 0x53, 0x38, 0x1d },
                             new bool[] { false, false, false, true, true, true, });
                     }
@@ -219,7 +222,12 @@ namespace _1RM.View.Host.ProtocolHosts
 
 
 
-            var secured = (MSTSCLib.IMsTscNonScriptable)_rdpClient.GetOcx();
+            if (_rdpClient.GetOcx() is not MSTSCLib.IMsTscNonScriptable secured)
+            {
+                SimpleLogHelper.Error("The RDP ActiveX control does not expose IMsTscNonScriptable.");
+                return;
+            }
+
             secured.ClearTextPassword = UnSafeStringEncipher.DecryptOrReturnOriginalString(_rdpSettings.Password);
             _rdpClient.FullScreenTitle = _rdpSettings.DisplayName + " - " + _rdpSettings.SubTitle;
 
@@ -327,10 +335,10 @@ namespace _1RM.View.Host.ProtocolHosts
              */
             SimpleLogHelper.Debug($"RDP: NotifyRedirectDeviceChange Receive(0x{msg:X}, 0x{wParam:X}, 0x{lParam:X})");
             if (msg == WM_DEVICECHANGE
-                && _rdpClient != null
-                && ((IMsRdpClientNonScriptable3)_rdpClient.GetOcx()).RedirectDynamicDevices)
+                && _rdpClient?.GetOcx() is IMsRdpClientNonScriptable3 nonScriptable
+                && nonScriptable.RedirectDynamicDevices)
             {
-                new MsRdpClientNonScriptableWrapper(_rdpClient.GetOcx()).NotifyRedirectDeviceChange(wParam, lParam);
+                new MsRdpClientNonScriptableWrapper(nonScriptable).NotifyRedirectDeviceChange(wParam, lParam);
             }
         }
 
@@ -339,11 +347,18 @@ namespace _1RM.View.Host.ProtocolHosts
             Debug.Assert(_rdpClient != null); if (_rdpClient == null) return;
             SimpleLogHelper.Debug("RDP Host: init Redirect");
 
+            var ocxObject = _rdpClient.GetOcx();
+            if (ocxObject is not IMsRdpClientNonScriptable3 nonScriptable3)
+            {
+                SimpleLogHelper.Error("The RDP ActiveX control does not expose IMsRdpClientNonScriptable3.");
+                return;
+            }
+
 
             #region Redirect
 
             // purpose is not clear
-            ((IMsRdpClientNonScriptable3)_rdpClient.GetOcx()).RedirectDynamicDrives = true; // Specifies or retrieves whether dynamically attached Plug and Play (PnP) drives that are enumerated while in a session are available for redirection. https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable3-redirectdynamicdrives
+            nonScriptable3.RedirectDynamicDrives = true; // Specifies or retrieves whether dynamically attached Plug and Play (PnP) drives that are enumerated while in a session are available for redirection. https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable3-redirectdynamicdrives
 
             if (_rdpSettings.EnableDiskDrives == true || _rdpSettings.EnableRedirectDrivesPlugIn == true)
             {
@@ -351,7 +366,7 @@ namespace _1RM.View.Host.ProtocolHosts
                 // you must redirect disk drive if you want to redirect usb disk
                 if (_rdpSettings.EnableRedirectDrivesPlugIn == true)
                 {
-                    ((IMsRdpClientNonScriptable3)_rdpClient.GetOcx()).RedirectDynamicDevices = true; // Specifies whether dynamically attached PnP devices that are enumerated while in a session are available for redirection. https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable3-redirectdynamicdevices
+                    nonScriptable3.RedirectDynamicDevices = true; // Specifies whether dynamically attached PnP devices that are enumerated while in a session are available for redirection. https://docs.microsoft.com/en-us/windows/win32/termserv/imsrdpclientnonscriptable3-redirectdynamicdevices
                     RedirectDevice();
                 }
             }
@@ -359,7 +374,12 @@ namespace _1RM.View.Host.ProtocolHosts
             // disable local disk
             if (_rdpSettings.EnableDiskDrives == false)
             {
-                var ocx = (MSTSCLib.IMsRdpClientNonScriptable7)_rdpClient.GetOcx();
+                if (ocxObject is not MSTSCLib.IMsRdpClientNonScriptable7 ocx)
+                {
+                    SimpleLogHelper.Error("The RDP ActiveX control does not expose IMsRdpClientNonScriptable7.");
+                    return;
+                }
+
                 ocx.DriveCollection.RescanDrives(false);
                 for (int i = 0; i < ocx.DriveCollection.DriveCount; i++)
                 {
@@ -445,7 +465,7 @@ namespace _1RM.View.Host.ProtocolHosts
 
             // Collect FriendlyNames of cameras redirected via the RDPECCAM channel so that
             // the same physical device is not also claimed by the USB DeviceCollection channel,
-            // which would cause a server-side double-redirect conflict. ref: https://github.com/1Remote/1Remote/issues/1071
+            // which would cause a server-side double-redirect conflict. ref: original project issue #1071
             var cameraFriendlyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             // redirect camera
             {
@@ -554,7 +574,7 @@ namespace _1RM.View.Host.ProtocolHosts
                                 SimpleLogHelper.DebugInfo(@$"RDP Host: init Display set DesktopWidth = {width} * {(_primaryScaleFactor / 100.0):F3} = {_rdpClient.DesktopWidth},  DesktopHeight = {height} * {(_primaryScaleFactor / 100.0):F3} = {_rdpClient.DesktopHeight},     RdpControl.Width = {_rdpClient.Width}, RdpControl.Height = {_rdpClient.Height}");
                                 if (_primaryScaleFactor > 100)
                                 {
-                                    // size compensation since https://github.com/1Remote/1Remote/issues/537
+                                    // size compensation since original project issue #537
                                     int c = (_primaryScaleFactor % 100) switch
                                     {
                                         50 => 1,
@@ -589,7 +609,8 @@ namespace _1RM.View.Host.ProtocolHosts
 
                 case ERdpFullScreenFlag.EnableFullAllScreens:
                     base.CanFullScreen = true;
-                    ((IMsRdpClientNonScriptable5)_rdpClient.GetOcx()).UseMultimon = true;
+                    if (_rdpClient.GetOcx() is IMsRdpClientNonScriptable5 nonScriptable5)
+                        nonScriptable5.UseMultimon = true;
                     break;
                 case ERdpFullScreenFlag.EnableFullScreen:
                 default:
@@ -614,8 +635,8 @@ namespace _1RM.View.Host.ProtocolHosts
             #region Performance
 
             // if win11 disable BandwidthDetection, make a workaround for #437 to hide info button after OS Win11 22H2 to avoid app crash when click the info button on Win11
-            // detail: https://github.com/1Remote/1Remote/issues/437
-            // 20250126: removed due to https://github.com/1Remote/1Remote/issues/559 is fixed
+            // detail: original project issue #437
+            // 20250126: removed due to original project issue #559 is fixed
             //try
             //{
             //    if (_1RM.Utils.WindowsApi.WindowsVersionHelper.IsWindows1122H2OrHigher()) // Win11 22H2
@@ -970,7 +991,7 @@ namespace _1RM.View.Host.ProtocolHosts
             {
                 while (true)
                 {
-                    // Window drag and drop resize only after mouse button release, 当拖动最大化的窗口时，需检测鼠标按键释放后再调整分辨率，详见：https://github.com/1Remote/1Remote/issues/553
+                    // Window drag and drop resize only after mouse button release, 当拖动最大化的窗口时，需检测鼠标按键释放后再调整分辨率，详见：original project issue #553
                     var isPressed = false;
                     Execute.OnUIThreadSync(() => { isPressed = Mouse.LeftButton == MouseButtonState.Pressed; });
                     if (!isPressed)
@@ -1089,7 +1110,7 @@ namespace _1RM.View.Host.ProtocolHosts
                 RdpHost.Focus();
                 if (_rdpClient is { } rdp)
                 {
-                    // try to fix https://github.com/1Remote/1Remote/issues/530, but failed
+                    // try to fix original project issue #530, but failed
                     rdp.Focus();
                     //rdp.Show();
                     //rdp.Update();

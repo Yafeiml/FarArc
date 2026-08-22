@@ -2,7 +2,6 @@
 using Newtonsoft.Json;
 using _1RM.Model.Protocol.Base;
 using _1RM.Utils.PuTTY;
-using _1RM.Utils.PuTTY;
 using Shawn.Utils;
 
 namespace _1RM.Model.Protocol

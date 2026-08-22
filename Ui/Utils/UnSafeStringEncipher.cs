@@ -1,40 +1,65 @@
 ﻿using System;
-using System.Text;
+using _1RM.Utils.Security;
 
 namespace _1RM.Utils
 {
     public static class UnSafeStringEncipher
     {
-        private static string? _salt = null;
-        public static void Init(string slat)
+        private static readonly object SyncRoot = new();
+        private static PortableStringCipher? _cipher;
+
+        public static void Init(string keyMaterial)
         {
-            if (_salt == null)
+            var candidate = new PortableStringCipher(keyMaterial);
+
+            lock (SyncRoot)
             {
-                _salt = slat;
-                _1Remote.Security.Config.SetSalt(slat);
+                if (_cipher == null)
+                {
+                    _cipher = candidate;
+                    return;
+                }
+
+                if (_cipher.PrimaryKeyId == candidate.PrimaryKeyId)
+                {
+                    candidate.Dispose();
+                    return;
+                }
             }
+
+            candidate.Dispose();
+            throw new InvalidOperationException("String encryption was already initialized with different key material.");
         }
+
         public static string SimpleEncrypt(string txt)
         {
-            return _1Remote.Security.SimpleStringEncipher.Encrypt(txt);
+            return Cipher.Encrypt(txt);
         }
+
         public static string? SimpleDecrypt(string encryptString)
         {
-            var ret = _1Remote.Security.SimpleStringEncipher.Decrypt(encryptString);
-            if(ret.IsSuccess)
-                return ret.PlainText;
-            return null;
+            return Cipher.TryDecrypt(encryptString, out var plainText) ? plainText : null;
         }
 
         public static string EncryptOnce(string str)
         {
-            if (SimpleDecrypt(str) == null)
-                return SimpleEncrypt(str);
-            return str;
+            return PortableStringCipher.IsCipherText(str) ? str : SimpleEncrypt(str);
         }
+
         public static string DecryptOrReturnOriginalString(string originalString)
         {
             return SimpleDecrypt(originalString) ?? originalString;
+        }
+
+        private static PortableStringCipher Cipher
+        {
+            get
+            {
+                if (_cipher == null)
+                    Init(Assert.STRING_ENCRYPTION_KEY);
+
+                return _cipher!;
+            }
         }
     }
 }

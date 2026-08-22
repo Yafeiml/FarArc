@@ -14,7 +14,8 @@ namespace _1RM.Service
             // encrypt password
             if (server is ProtocolBaseWithAddressPortUserPwd s)
             {
-                s.Password = UnSafeStringEncipher.EncryptOnce(s.Password);
+                if (!string.IsNullOrEmpty(s.Password))
+                    s.Password = UnSafeStringEncipher.EncryptOnce(s.Password);
                 foreach (var credential in s.AlternateCredentials)
                 {
                     credential.EncryptToDatabaseLevel();

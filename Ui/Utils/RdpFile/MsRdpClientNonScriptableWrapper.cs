@@ -21,7 +21,7 @@ namespace _1RM.Utils.RdpFile
             // 函数接口原实现 void NotifyRedirectDeviceChange([ComAliasName("MSTSCLib.UINT_PTR")] uint wParam, [ComAliasName("MSTSCLib.LONG_PTR")] int lParam);，无法满足 x64 的指针数值范围
 
             /// <summary>
-            /// 迁移到 .NET6 后，使用自带的接口会因为 IntPtr 类型的 lParam 其值超过了 int 型最大值，之后会出现错误 `Arithmetic operation resulted in an overflow  HwndSourceHook`
+            /// 在现代 .NET 中，使用自带接口时 IntPtr 类型的 lParam 可能超过 int 最大值，之后会出现错误 `Arithmetic operation resulted in an overflow  HwndSourceHook`
             /// </summary>
             /// <param name="wParam"></param>
             /// <param name="lParam"></param>

@@ -1,15 +1,13 @@
-﻿using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Shawn.Utils;
 using static Shawn.Utils.VersionHelper;
 
 namespace Tests.Utils
 {
-    [TestClass()]
+    [TestClass]
     public class VersionHelperTests
     {
-
-        [TestMethod()]
+        [TestMethod]
         public void FromStringTest()
         {
             var v1 = new Version(0, 6, 1, 0);
@@ -17,7 +15,7 @@ namespace Tests.Utils
             Assert.IsTrue(v1 == v2);
         }
 
-        [TestMethod()]
+        [TestMethod]
         public void CompareTest()
         {
             var v1 = new Version(0, 6, 1, 0);
@@ -45,81 +43,37 @@ namespace Tests.Utils
             Assert.IsTrue(v9 > v8);
             Assert.IsTrue(v1 > v9);
             Assert.IsTrue(v9 != v8);
-            Assert.IsTrue(Shawn.Utils.VersionHelper.Version.Compare(v1, v3) == true);
-            Assert.IsTrue(Shawn.Utils.VersionHelper.Version.Compare(v9, v1) == true);
+            Assert.IsTrue(Version.Compare(v1, v3));
+            Assert.IsTrue(Version.Compare(v9, v1));
         }
 
-
-        [TestMethod()]
-        public void VersionHelperTest()
+        [TestMethod]
+        public void DefaultCheckMethodTest()
         {
             var v1 = new Version(0, 6, 1, 0);
             var v2 = new Version(0, 6, 2, 0);
             var v3 = new Version(0, 7, 1, 0);
-            {
-                var url = "www.xxxx.xx";
-                var content = $"latest version: {v2.ToString()}";
-                var checker = new VersionHelper(v1);
-                var ret = checker.CheckUpdateFromUrl(url, null, content);
-                Assert.IsTrue(ret.Item1);
-                var v = Version.FromString(ret.Item2);
-                Assert.IsTrue(v == v2);
-                Assert.IsTrue(ret.Item3 == url);
-            }
-            {
-                var url = "www.xxxx.xx";
-                var content = $"latest version: {v2.ToString()}";
-                var checker = new VersionHelper(v1);
-                var ret = checker.CheckUpdateFromUrl(url, v3, content);
-                Assert.IsTrue(ret.Item1 == false);
-            }
-            {
-                var url = "www.xxxx.xx";
-                var content = $"latest version: {v2.ToString()}";
-                var checker = new VersionHelper(v1);
-                var ret = checker.CheckUpdateFromUrl(url, v2, content);
-                Assert.IsTrue(ret.Item1 == false);
-            }
-            {
-                var url = "www.xxxx.xx";
-                var content = $"latest version: {v3.ToString()}";
-                var checker = new VersionHelper(v1);
-                var ret = checker.CheckUpdateFromUrl(url, v2, content);
-                Assert.IsTrue(ret.Item1 == true);
-            }
-            {
-                var url = "www.xxxx.xx";
-                var content = $"latest version: {v2.ToString()}";
-                var checker = new VersionHelper(v1);
-                var e = new ManualResetEvent(false);
-                checker.OnNewVersionRelease += (version, url2) =>
-                {
-                    var v = Version.FromString(version);
-                    Assert.IsTrue(url == url2);
-                    Assert.IsTrue(v == v2);
-                    e.Set();
-                };
-                checker.CheckUpdateAsync(url, content);
-                if (e.WaitOne(3000) == false)
-                {
-                    Assert.Fail();
-                }
-            }
-            {
-                var url = "www.xxxx.xx";
-                var content = $"latest version: {v2.ToString()}";
-                var checker = new VersionHelper(v3);
-                var e = new ManualResetEvent(false);
-                checker.OnNewVersionRelease += (version, url2) =>
-                {
-                    e.Set();
-                };
-                checker.CheckUpdateAsync(url, content);
-                if (e.WaitOne(3000) == true)
-                {
-                    Assert.Fail();
-                }
-            }
+            const string url = "www.xxxx.xx";
+
+            var update = VersionHelper.DefaultCheckMethod($"latest version: {v2}", url, v1, null);
+            Assert.IsTrue(update.NewerPublished);
+            Assert.IsTrue(Version.FromString(update.NewerVersion) == v2);
+            Assert.AreEqual(url, update.NewerUrl);
+            Assert.IsFalse(update.NewerHasBreakChange);
+
+            var ignoredByNewerVersion = VersionHelper.DefaultCheckMethod($"latest version: {v2}", url, v1, v3);
+            Assert.IsFalse(ignoredByNewerVersion.NewerPublished);
+
+            var ignoredBySameVersion = VersionHelper.DefaultCheckMethod($"latest version: {v2}", url, v1, v2);
+            Assert.IsFalse(ignoredBySameVersion.NewerPublished);
+
+            var newerThanIgnored = VersionHelper.DefaultCheckMethod($"latest version: {v3}", url, v1, v2);
+            Assert.IsTrue(newerThanIgnored.NewerPublished);
+            Assert.AreEqual(v3.ToString(), newerThanIgnored.NewerVersion);
+
+            var breakingUpdate = VersionHelper.DefaultCheckMethod($"!latest version: {v2}!", url, v1, null);
+            Assert.IsTrue(breakingUpdate.NewerPublished);
+            Assert.IsTrue(breakingUpdate.NewerHasBreakChange);
         }
     }
 }

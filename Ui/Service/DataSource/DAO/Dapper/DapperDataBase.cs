@@ -228,9 +228,11 @@ CREATE TABLE IF NOT EXISTS `{TableServer.TABLE_NAME}` (
             string info = "We can not check table exists on database: ";
             var result = OpenConnection(info);
             if (!result.IsSuccess) return result;
+            if (_dbConnection is not { } connection)
+                return Result.Fail(info, DatabaseName, "The database connection is not available.");
             try
             {
-                var ret = _dbConnection.QueryFirstOrDefault<int>($"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@tableName", new { tableName, });
+                var ret = connection.QueryFirstOrDefault<int>($"SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=@tableName", new { tableName, });
                 if (ret > 0)
                     return Result.Success();
                 return Result.Fail(info, DatabaseName, $"Table {tableName} not exists!");
@@ -249,9 +251,11 @@ CREATE TABLE IF NOT EXISTS `{TableServer.TABLE_NAME}` (
             {
                 var result = OpenConnection(info);
                 if (!result.IsSuccess) return ResultSelects<ProtocolBase>.Fail(result.ErrorInfo);
+                if (_dbConnection is not { } connection)
+                    return ResultSelects<ProtocolBase>.Fail(info, DatabaseName, "The database connection is not available.");
                 try
                 {
-                    var ps = _dbConnection.Query<TableServer>(NormalizedSql($"SELECT * FROM `{TableServer.TABLE_NAME}`"))
+                    var ps = connection.Query<TableServer>(NormalizedSql($"SELECT * FROM `{TableServer.TABLE_NAME}`"))
                                                             .Select(x => x?.ToProtocolServerBase())
                                                             .Where(x => x != null).ToList();
                     return ResultSelects<ProtocolBase>.Success((ps as List<ProtocolBase>)!);

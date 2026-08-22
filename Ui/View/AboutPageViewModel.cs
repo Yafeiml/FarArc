@@ -122,7 +122,7 @@ namespace _1RM.View
 
         public void CheckUpdateAsync()
         {
-            _checker.CheckUpdateAsync();
+            _checker?.CheckUpdateAsync();
         }
 
         private void OnNewVersionRelease(VersionHelper.CheckUpdateResult result)
@@ -169,11 +169,7 @@ namespace _1RM.View
                     }
                     else
                     {
-#if FOR_MICROSOFT_STORE_ONLY
-                        HyperlinkHelper.OpenUriBySystem("ms-windows-store://review/?productid=9PNMNF92JNFP");
-#else
                         HyperlinkHelper.OpenUriBySystem(NewVersionUrl);
-#endif
                     }
                 });
             }

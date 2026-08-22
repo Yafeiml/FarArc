@@ -204,7 +204,7 @@ namespace _1RM.View.Settings.Theme
 
         public class FontSizeOption
         {
-            public string Name { get; set; }
+            public string Name { get; set; } = "";
             public int Size { get; set; }
         }
 

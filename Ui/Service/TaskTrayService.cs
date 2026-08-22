@@ -88,19 +88,18 @@ namespace _1RM.Service
                 var about = new System.Windows.Forms.ToolStripMenuItem(IoC.Translate("About"));
                 about.Click += (sender, args) =>
                 {
-                    //HyperlinkHelper.OpenUriBySystem("https://github.com/1Remote/1Remote");
                     IoC.Get<MainWindowViewModel>().ShowMe(true);
                     IoC.Get<MainWindowViewModel>().CmdGoAboutPage.Execute();
                 };
                 var linkHowToUse = new System.Windows.Forms.ToolStripMenuItem(IoC.Translate("about_page_how_to_use"));
                 linkHowToUse.Click += (sender, args) =>
                 {
-                    HyperlinkHelper.OpenUriBySystem("https://1remote.github.io/usage/quick-start/");
+                    HyperlinkHelper.OpenUriBySystem(Assert.DOCUMENTATION_URL);
                 };
                 var linkFeedback = new System.Windows.Forms.ToolStripMenuItem(IoC.Translate("about_page_feedback"));
                 linkFeedback.Click += (sender, args) =>
                 {
-                    HyperlinkHelper.OpenUriBySystem("https://github.com/1Remote/1Remote/issues");
+                    HyperlinkHelper.OpenUriBySystem(Assert.ISSUES_URL);
                 };
                 var exit = new System.Windows.Forms.ToolStripMenuItem(IoC.Translate("Exit"));
                 exit.Click += (sender, args) =>
