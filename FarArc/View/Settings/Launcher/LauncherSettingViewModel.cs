@@ -1,0 +1,160 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Text;
+using System.Threading.Tasks;
+using System.Windows.Data;
+using System.Windows.Input;
+using FarArc.Model;
+using FarArc.Model.Protocol;
+using FarArc.Service;
+using MSTSCLib;
+using Shawn.Utils;
+
+namespace FarArc.View.Settings.Launcher
+{
+    public class LauncherSettingViewModel : NotifyPropertyChangedBase
+    {
+        private readonly ConfigurationService _configurationService;
+        private readonly LauncherService _launcherService;
+
+        public Dictionary<HotkeyModifierKeys, string> HotkeyModifierKeys => ConverterHotkeyModifierKeys.HotkeyModifierKeys;
+
+
+        public LauncherSettingViewModel(ConfigurationService configurationService, LauncherService launcherService)
+        {
+            _configurationService = configurationService;
+            _launcherService = launcherService;
+        }
+
+        public List<MatchProviderInfo> AvailableMatcherProviders => _configurationService.AvailableMatcherProviders;
+
+        public bool LauncherEnabled
+        {
+            get => _configurationService.Launcher.LauncherEnabled;
+            set
+            {
+                if (SetAndNotifyIfChanged(ref _configurationService.Launcher.LauncherEnabled, value))
+                {
+                    _configurationService.Save();
+                    IoC.TryGet<LauncherWindowViewModel>()?.SetHotKey(LauncherEnabled, LauncherHotKeyModifiers, LauncherHotKeyKey);
+                }
+                RaisePropertyChanged();
+            }
+        }
+
+        public HotkeyModifierKeys LauncherHotKeyModifiers
+        {
+            get => _configurationService.Launcher.HotKeyModifiers;
+            set
+            {
+                if (value != LauncherHotKeyModifiers
+                    && _launcherService.CheckIfHotkeyAvailable(value, LauncherHotKeyKey))
+                {
+                    _configurationService.Launcher.HotKeyModifiers = value;
+                    if (false == IoC.TryGet<LauncherWindowViewModel>()?.SetHotKey(LauncherEnabled, LauncherHotKeyModifiers, LauncherHotKeyKey))
+                    {
+                        throw new ArgumentException();
+                    }
+                    _configurationService.Save();
+                    RaisePropertyChanged(nameof(LauncherHotKeyStr));
+                }
+                RaisePropertyChanged();
+            }
+        }
+
+        public Key LauncherHotKeyKey
+        {
+            get => _configurationService.Launcher.HotKeyKey;
+            set
+            {
+                if (value != LauncherHotKeyKey
+                    && _launcherService.CheckIfHotkeyAvailable(LauncherHotKeyModifiers, value)
+                    && SetAndNotifyIfChanged(ref _configurationService.Launcher.HotKeyKey, value))
+                {
+                    if (false == IoC.TryGet<LauncherWindowViewModel>()?.SetHotKey(LauncherEnabled, LauncherHotKeyModifiers, LauncherHotKeyKey))
+                    {
+                        throw new ArgumentException();
+                    }
+                    _configurationService.Save();
+                    RaisePropertyChanged(nameof(LauncherHotKeyStr));
+                }
+            }
+        }
+
+        public string LauncherHotKeyStr
+        {
+            get
+            {
+                if (HotkeyModifierKeys.ContainsKey(LauncherHotKeyModifiers))
+                {
+                    return HotkeyModifierKeys[LauncherHotKeyModifiers] + " + " + LauncherHotKeyKey;
+                }
+                return "Alt + M";
+            }
+        }
+
+
+        public bool ShowCredentials
+        {
+            get => _configurationService.Launcher.ShowCredentials;
+            set
+            {
+                if (SetAndNotifyIfChanged(ref _configurationService.Launcher.ShowCredentials, value))
+                {
+                    _configurationService.Save();
+                }
+            }
+        }
+
+        public bool AllowSaveInfoInQuickConnect
+        {
+            get => _configurationService.Launcher.AllowSaveInfoInQuickConnect;
+            set
+            {
+                if (SetAndNotifyIfChanged(ref _configurationService.Launcher.AllowSaveInfoInQuickConnect, value))
+                {
+                    _configurationService.Save();
+                }
+            }
+        }
+    }
+
+
+
+    public class ConverterHotkeyModifierKeys : IValueConverter
+    {
+        public static Dictionary<HotkeyModifierKeys, string> HotkeyModifierKeys = new Dictionary<HotkeyModifierKeys, string>
+        {
+            { FarArc.Service.HotkeyModifierKeys.Control, "Ctrl" },
+            { FarArc.Service.HotkeyModifierKeys.Alt, "Alt" },
+            { FarArc.Service.HotkeyModifierKeys.Windows, "Win" },
+            { FarArc.Service.HotkeyModifierKeys.Shift, "Shift" },
+            { FarArc.Service.HotkeyModifierKeys.ShiftAlt, "Shift + Alt" },
+            { FarArc.Service.HotkeyModifierKeys.ShiftWindows, "Shift + Win" },
+            { FarArc.Service.HotkeyModifierKeys.ShiftControl, "Shift + Ctrl" },
+            { FarArc.Service.HotkeyModifierKeys.ControlAlt, "Ctrl + Alt" }
+        };
+
+
+        #region IValueConverter 成员  
+        public object Convert(object? value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        {
+            if (value is not FarArc.Service.HotkeyModifierKeys mk || HotkeyModifierKeys.ContainsKey(mk) == false)
+            {
+                return 0;
+            }
+
+            return HotkeyModifierKeys.Keys.ToList().IndexOf(mk);
+        }
+
+        public object? ConvertBack(object? value, Type targetType, object parameter, System.Globalization.CultureInfo culture)
+        {
+            if (value == null)
+                return null;
+            return HotkeyModifierKeys.Keys.ToList()[int.Parse(value.ToString() ?? "0")];
+        }
+        #endregion
+    }
+}

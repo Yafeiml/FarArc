@@ -5,7 +5,7 @@ $originalDirectory = Get-Location
 Set-Location $PSScriptRoot
 
 # Get the file
-$filePath = "..\Ui\AppVersion.cs"
+$filePath = "..\FarArc\AppVersion.cs"
 $fileContent = Get-Content $filePath
 
 # Extract the version numbers and pre-release string from the file

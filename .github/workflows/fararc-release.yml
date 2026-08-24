@@ -1,0 +1,246 @@
+name: FarArc .NET 10 CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: fararc-net10-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: 验证 FarArc
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 安装 .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: 审计活动代码中的旧品牌标识
+        shell: pwsh
+        run: |
+          $legacy = @(git grep -I -n -i -E '1remote|_1rm|%1rm_|rmsec' -- FarArc FarArc.Tests scripts 2>$null)
+          $grepExitCode = $LASTEXITCODE
+          if ($grepExitCode -gt 1) {
+            throw "无法完成旧品牌标识审计。"
+          }
+          if ($legacy.Count -gt 0) {
+            $legacy | ForEach-Object { Write-Error $_ }
+            throw "活动代码仍包含旧品牌标识。"
+          }
+          $global:LASTEXITCODE = 0
+
+      - name: 还原依赖
+        shell: pwsh
+        run: |
+          dotnet restore .\FarArc.Tests\FarArc.Tests.csproj
+          dotnet restore .\Dragablz\Dragablz.Test\Dragablz.Test.csproj
+          dotnet restore .\Dragablz\DragablzDemo\DragablzDemo.csproj
+
+      - name: 构建应用
+        run: dotnet build .\FarArc\FarArc.csproj -c Debug --no-restore --no-incremental
+
+      - name: 运行应用测试
+        run: dotnet test .\FarArc.Tests\FarArc.Tests.csproj -c Debug --no-restore
+
+      - name: 运行 Dragablz 测试
+        run: dotnet test .\Dragablz\Dragablz.Test\Dragablz.Test.csproj -c Debug --no-restore
+
+      - name: 构建 Dragablz 示例
+        run: dotnet build .\Dragablz\DragablzDemo\DragablzDemo.csproj -c Debug --no-restore --no-incremental
+
+      - name: 审计 NuGet 漏洞
+        run: dotnet list .\FarArc\FarArc.csproj package --vulnerable --include-transitive
+
+  release:
+    name: 发布 FarArc Windows x64
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: verify
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: 安装 .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: 校验发布标签与应用版本
+        shell: pwsh
+        run: |
+          $buildVersion = .\scripts\Get-Version.ps1
+          $expectedTag = "v$buildVersion"
+          if ($env:GITHUB_REF_NAME -ne $expectedTag) {
+            throw "发布标签 $env:GITHUB_REF_NAME 与应用版本 $buildVersion 不一致；期望标签为 $expectedTag。"
+          }
+          "RELEASE_TAG=$expectedTag" >> $env:GITHUB_ENV
+          "PACKAGE_SUFFIX=$buildVersion" >> $env:GITHUB_ENV
+
+      - name: 还原发布依赖
+        run: dotnet restore .\FarArc\FarArc.csproj -p:Configuration=Release
+
+      - name: 打包对应源码
+        shell: pwsh
+        run: |
+          $repositoryRoot = (Resolve-Path ".").Path
+          $sourceStage = Join-Path $env:RUNNER_TEMP "FarArc-source-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          $sourceFolderName = "FarArc-$env:PACKAGE_SUFFIX-source"
+          $sourceRoot = Join-Path $sourceStage $sourceFolderName
+          $sourceZip = Join-Path $repositoryRoot "$sourceFolderName.zip"
+          $excludedDirectories = @(".git", "bin", "obj")
+
+          function Copy-SourceTree([string] $from, [string] $to) {
+            New-Item -ItemType Directory -Path $to -Force | Out-Null
+            Get-ChildItem -LiteralPath $from -Force | ForEach-Object {
+              $destination = Join-Path $to $_.Name
+              if ($_.PSIsContainer) {
+                if ($excludedDirectories -notcontains $_.Name) {
+                  Copy-SourceTree $_.FullName $destination
+                }
+              } elseif ($_.Name -ne ".git") {
+                Copy-Item -LiteralPath $_.FullName -Destination $destination
+              }
+            }
+          }
+
+          Copy-SourceTree $repositoryRoot $sourceRoot
+
+          $vncLicense = Join-Path $repositoryRoot "ThirdParty\VncSharpCore\COPYING.txt"
+          if (!(Test-Path -LiteralPath $vncLicense -PathType Leaf)) {
+            throw "仓库内缺少 VncSharpCore 的 COPYING.txt。"
+          }
+
+          Compress-Archive -LiteralPath $sourceRoot -DestinationPath $sourceZip
+          "SOURCE_ZIP=$sourceZip" >> $env:GITHUB_ENV
+
+      - name: 准备发布加密密钥
+        shell: pwsh
+        env:
+          ENCRYPTION_KEY: ${{ secrets.GLOBAL_STRING_ENCRYPTION_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:ENCRYPTION_KEY)) {
+            throw "必须配置仓库 Secret：GLOBAL_STRING_ENCRYPTION_KEY。"
+          }
+          try {
+            $keyBytes = [Convert]::FromBase64String($env:ENCRYPTION_KEY)
+          }
+          catch {
+            throw "GLOBAL_STRING_ENCRYPTION_KEY 必须是 Base64 编码的随机密钥。"
+          }
+          if ($keyBytes.Length -lt 32) {
+            throw "GLOBAL_STRING_ENCRYPTION_KEY 解码后至少需要 32 个随机字节。"
+          }
+          $keyFile = Join-Path $env:RUNNER_TEMP "fararc-release-key-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT.txt"
+          [System.IO.File]::WriteAllText($keyFile, $env:ENCRYPTION_KEY, [System.Text.UTF8Encoding]::new($false))
+          "FARARC_ENCRYPTION_KEY_FILE=$keyFile" >> $env:GITHUB_ENV
+
+      - name: 发布依赖 .NET 10 的 x64 包
+        run: dotnet publish .\FarArc\FarArc.csproj -p:PublishProfile=x64-net100 -p:FarArcEncryptionKeyFile="$env:FARARC_ENCRYPTION_KEY_FILE"
+
+      - name: 发布自包含 x64 包
+        run: dotnet publish .\FarArc\FarArc.csproj -p:PublishProfile=x64-net100-self-contained -p:FarArcEncryptionKeyFile="$env:FARARC_ENCRYPTION_KEY_FILE"
+
+      - name: 打包发布文件
+        shell: pwsh
+        run: |
+          $publishRoots = @(
+            ".\FarArc\bin\Release\net10.0-windows\publish\win-x64",
+            ".\FarArc\bin\Release\net10.0-windows-self-contained\publish\win-x64"
+          )
+          $requiredFiles = @("FarArc.exe", "LICENSE.txt", "FORK-NOTICE.md", "SECURITY.md", "THIRD-PARTY-NOTICES.md")
+
+          foreach ($publishRoot in $publishRoots) {
+            foreach ($requiredFile in $requiredFiles) {
+              if (!(Test-Path -LiteralPath (Join-Path $publishRoot $requiredFile) -PathType Leaf)) {
+                throw "$publishRoot 缺少发布文件 $requiredFile。"
+              }
+            }
+
+            $legacyArtifacts = @(Get-ChildItem -LiteralPath $publishRoot -Recurse -File | Where-Object {
+              $_.Name -match '(?i)1remote|1rm|rmsec'
+            })
+            if ($legacyArtifacts.Count -gt 0) {
+              $legacyArtifacts.FullName | ForEach-Object { Write-Error $_ }
+              throw "$publishRoot 中存在旧品牌发布产物。"
+            }
+
+            $versionInfo = (Get-Item -LiteralPath (Join-Path $publishRoot "FarArc.exe")).VersionInfo
+            if ($versionInfo.ProductName -ne "FarArc" -or !$versionInfo.FileVersion.StartsWith("$env:PACKAGE_SUFFIX.")) {
+              throw "$publishRoot 中 FarArc.exe 的产品名或文件版本不正确。"
+            }
+          }
+
+          $frameworkZip = "FarArc-$env:PACKAGE_SUFFIX-win-x64-net10.zip"
+          $selfContainedZip = "FarArc-$env:PACKAGE_SUFFIX-win-x64-net10-self-contained.zip"
+          Compress-Archive -Path ".\FarArc\bin\Release\net10.0-windows\publish\win-x64\*" -DestinationPath $frameworkZip
+          Compress-Archive -Path ".\FarArc\bin\Release\net10.0-windows-self-contained\publish\win-x64\*" -DestinationPath $selfContainedZip
+          "FRAMEWORK_ZIP=$frameworkZip" >> $env:GITHUB_ENV
+          "SELF_CONTAINED_ZIP=$selfContainedZip" >> $env:GITHUB_ENV
+
+      - name: 清理发布密钥和源码占位状态
+        if: always()
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:FARARC_ENCRYPTION_KEY_FILE)) {
+            exit 0
+          }
+
+          $keyFile = [System.IO.Path]::GetFullPath($env:FARARC_ENCRYPTION_KEY_FILE)
+          $tempRoot = [System.IO.Path]::GetFullPath($env:RUNNER_TEMP).TrimEnd('\') + '\'
+          if (!$keyFile.StartsWith($tempRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "拒绝清理 RUNNER_TEMP 以外的密钥文件。"
+          }
+
+          if (Test-Path -LiteralPath $keyFile -PathType Leaf) {
+            .\scripts\Set-Secret.ps1 -filePath .\FarArc\Assert.cs -Pattern "===REPLACE_ME_WITH_ENCRYPTION_KEY===" -localSecretFilePath $keyFile -isRevert
+            .\scripts\Set-BuildDate.ps1 -filePath .\FarArc\AppVersion.cs -isRevert
+            Remove-Item -LiteralPath $keyFile -Force
+          }
+
+      - name: 创建 GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @(
+            "FarArc $env:PACKAGE_SUFFIX 是品牌重构后的首个公开版本。",
+            "",
+            "- 仅支持 .NET 10 / Windows x64。",
+            "- 推荐下载 self-contained 包，无需预装 .NET Desktop Runtime。",
+            "- 与上游 1Remote 及此前的 1Remote.NET10 开发构建不兼容；请使用全新程序目录和全新数据库。",
+            "- 本次二进制对应的完整源码已作为 source 压缩包附加。",
+            "- FarArc 是 1Remote 的独立派生项目，不是上游官方版本。",
+            "",
+            "Upstream: https://github.com/1Remote/1Remote",
+            "Commit: $env:GITHUB_SHA"
+          ) -join "`n"
+
+          gh release create $env:RELEASE_TAG $env:FRAMEWORK_ZIP $env:SELF_CONTAINED_ZIP $env:SOURCE_ZIP --verify-tag --title "FarArc $env:PACKAGE_SUFFIX" --notes $notes

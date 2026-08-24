@@ -1,6 +1,10 @@
 # Third-party notices
 
-The 1Remote.NET10 distribution contains third-party components that remain subject to their own licenses. This notice is not a complete software-bill-of-materials or legal audit.
+The FarArc distribution contains third-party components that remain subject to their own licenses. This notice is not a complete software-bill-of-materials or legal audit.
+
+## 1Remote
+
+FarArc contains substantial code derived from [1Remote](https://github.com/1Remote/1Remote). The derived work is distributed under GNU GPL version 3; the complete license is preserved in the repository root as `LICENSE`. FarArc is independently maintained and is not an official 1Remote release. The relationship, major modifications, and compatibility boundaries are documented in `FORK-NOTICE.md`.
 
 ## Dragablz
 
@@ -20,13 +24,13 @@ The source snapshot corresponds to commit `085a0eb224e2871c9c05a91ae4bcbea6c0e95
 
 ## PuTTY
 
-The distribution embeds `Ui/Resources/PuTTY/putty.exe`. PuTTY is copyright Simon Tatham and other contributors and is distributed under the MIT License. A copy of the authoritative license page is preserved at `ThirdParty/Licenses/PuTTY-LICENSE.html` and copied into published packages.
+The distribution embeds `FarArc/Resources/PuTTY/putty.exe`. PuTTY is copyright Simon Tatham and other contributors and is distributed under the MIT License. A copy of the authoritative license page is preserved at `ThirdParty/Licenses/PuTTY-LICENSE.html` and copied into published packages.
 
 https://www.chiark.greenend.org.uk/~sgtatham/putty/licence.html
 
 ## KiTTY
 
-The distribution embeds `Ui/Resources/KiTTY/kitty_portable.exe`. KiTTY is copyright Cyril Dupont and is distributed under the MIT License. Its license text is preserved at `ThirdParty/Licenses/KiTTY-LICENSE.txt` and copied into published packages.
+The distribution embeds `FarArc/Resources/KiTTY/kitty_portable.exe`. KiTTY is copyright Cyril Dupont and is distributed under the MIT License. Its license text is preserved at `ThirdParty/Licenses/KiTTY-LICENSE.txt` and copied into published packages.
 
 https://github.com/cyd01/KiTTY/blob/master/LICENCE.TXT
 

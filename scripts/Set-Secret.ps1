@@ -1,93 +1,59 @@
-# This is a PowerShell script that allows you to set a secret value in a given file
-# usage:
-
-# given a secret
-# .\Set-Secret.ps1 -filePath .\Ui\Utils\MsAppCenterHelper.cs -Pattern "===REPLACE_ME_WITH_APP_CENTER_SECRET===" -Secret "secret_value"
-# .\Set-Secret.ps1 -filePath .\Ui\Utils\MsAppCenterHelper.cs -Pattern "===REPLACE_ME_WITH_APP_CENTER_SECRET===" -Secret "secret_value" -isRevert
-
-# read secret from file
-# .\Set-Secret.ps1 -filePath .\Ui\Utils\MsAppCenterHelper.cs -Pattern "===REPLACE_ME_WITH_APP_CENTER_SECRET===" -localSecretFilePath "C:\1Remote_Secret\AppCenterSecret.txt"
-# .\Set-Secret.ps1 -filePath .\Ui\Utils\MsAppCenterHelper.cs -Pattern "===REPLACE_ME_WITH_APP_CENTER_SECRET===" -localSecretFilePath "C:\1Remote_Secret\AppCenterSecret.txt" -isRevert
-
-
+[CmdletBinding()]
 param (
+    [Parameter(Mandatory = $true)]
     [string]$filePath,
+    [Parameter(Mandatory = $true)]
     [string]$Pattern,
     [string]$Secret,
     [string]$localSecretFilePath,
-    [switch]$isRevert # true then replace $Secret with $Pattern
+    [switch]$isRevert
 )
 
-if (!$Pattern) {
-    Write-Host "Error: Pattern is empty."
-    exit 1
+if ([string]::IsNullOrWhiteSpace($Pattern)) {
+    throw "Pattern cannot be empty."
 }
 
-# Check if Secret is empty
-if (!$Secret) {
-
-    if(!$localSecretFilePath){
-        Write-Host "Error: Secret is empty."
-        exit 1
+if ([string]::IsNullOrWhiteSpace($Secret)) {
+    if ([string]::IsNullOrWhiteSpace($localSecretFilePath)) {
+        throw "Secret and localSecretFilePath cannot both be empty."
     }
-    if (Test-Path -Path $localSecretFilePath -PathType Leaf) {
-        $Secret = Get-Content $localSecretFilePath
+    if (!(Test-Path -LiteralPath $localSecretFilePath -PathType Leaf)) {
+        throw "Secret file does not exist: $localSecretFilePath"
     }
-    else {
-        exit 0
-    }
+    $Secret = [System.IO.File]::ReadAllText($localSecretFilePath).Trim()
 }
 
-# Get the current working directory
-$originalDirectory = Get-Location
-
-# Set the current directory to the script directory
-Set-Location $PSScriptRoot
-
-cd ..
-
-
-# Check if the file exists
-if (!(Test-Path -Path $filePath -PathType Leaf)) {
-    Write-Host "Error: $filePath does not exist."
-    Set-Location $originalDirectory
-    exit 2
+if ([string]::IsNullOrWhiteSpace($Secret)) {
+    throw "Secret cannot be empty."
 }
 
-
-$target = """$Pattern"";"
-$replacement = """$Secret"";"
-
-if ($isRevert) {
-    $target = $Secret
-    $replacement = $Pattern
+$repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
+$resolvedFilePath = if ([System.IO.Path]::IsPathRooted($filePath)) {
+    [System.IO.Path]::GetFullPath($filePath)
+} else {
+    [System.IO.Path]::GetFullPath((Join-Path $repositoryRoot $filePath))
 }
 
-$fileLines = Get-Content $filePath
+if (!(Test-Path -LiteralPath $resolvedFilePath -PathType Leaf)) {
+    throw "Target file does not exist: $resolvedFilePath"
+}
 
-# Escape special characters in the target string
-$escapedTarget = [regex]::Escape($target)
+$quotedPattern = '"' + $Pattern + '";'
+$quotedSecret = '"' + $Secret + '";'
+$target = if ($isRevert) { $quotedSecret } else { $quotedPattern }
+$replacement = if ($isRevert) { $quotedPattern } else { $quotedSecret }
+$bytes = [System.IO.File]::ReadAllBytes($resolvedFilePath)
+$hasUtf8Bom = $bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF
+$encoding = [System.Text.UTF8Encoding]::new($hasUtf8Bom)
+$content = $encoding.GetString($bytes, $(if ($hasUtf8Bom) { 3 } else { 0 }), $bytes.Length - $(if ($hasUtf8Bom) { 3 } else { 0 }))
 
-$matched = 0
-foreach ($l in $fileLines) {
-    if($l -match $escapedTarget) {
-        $matched = 1
-        break
+if ($content.IndexOf($target, [System.StringComparison]::Ordinal) -lt 0) {
+    if ($isRevert -and $content.IndexOf($quotedPattern, [System.StringComparison]::Ordinal) -ge 0) {
+        Write-Warning "Target file is already restored: $resolvedFilePath"
+        return
     }
-}
-if (!$matched) {
-    if($isRevert) {
-        Write-Host "Warning: secret string not found in $filePath"
-    }
-    else{
-        Write-Host "Error: $target not found in $filePath"
-        Set-Location $originalDirectory
-        exit 4
-    }
+    throw "Expected placeholder or secret was not found in $resolvedFilePath"
 }
 
-# Replace the content of the file
-(Get-Content $filePath) -Replace $escapedTarget, $replacement | Set-Content $filePath
-
-# Set the current directory back to the original location
-Set-Location $originalDirectory
+$updatedContent = $content.Replace($target, $replacement)
+[System.IO.File]::WriteAllText($resolvedFilePath, $updatedContent, $encoding)

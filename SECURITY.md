@@ -1,27 +1,28 @@
-# Security and secret storage
+# FarArc security and secret storage
 
 ## Stored connection secrets
 
-This fork encrypts passwords, private keys, gateway credentials, secret application arguments, and data-source passwords before storing them in SQLite, MySQL, or PostgreSQL. It uses the in-tree `PortableStringCipher` implementation instead of the license-unclear `1Remote.Security` NuGet package.
+FarArc encrypts passwords, private keys, gateway credentials, secret application arguments, and data-source passwords before storing them in SQLite, MySQL, or PostgreSQL. It uses the in-tree `PortableStringCipher` implementation instead of the former `1Remote.Security` NuGet dependency.
 
 The ciphertext format is versioned and authenticated:
 
 ```text
-rmsec:1:<key-id>:<nonce>:<ciphertext>:<authentication-tag>
+fararcsec:1:<key-id>:<nonce>:<ciphertext>:<authentication-tag>
 ```
 
 - AES-256-GCM provides encryption and tamper detection.
 - Every encryption operation uses a new 96-bit random nonce.
 - HKDF-SHA256 derives the AES key from the configured key material.
+- The HKDF salt and info strings use a FarArc-specific context so the derived keys are isolated from earlier development formats.
 - The format version and key identifier are authenticated as additional data.
 - The key identifier supports selecting old keys during a future key rotation.
 - The payload is portable: it is not bound to one Windows account or device.
 
-This format intentionally does not decrypt databases written by the former `1Remote.Security` dependency. Use a new database for this fork.
+This format intentionally does not decrypt databases written by upstream 1Remote, the former `1Remote.Security` dependency, or earlier `1Remote.NET10` development builds that used the `rmsec:1` format. Start FarArc with a new database and a new program directory.
 
 ## Current key source and limitations
 
-A tagged build injects `GLOBAL_STRING_ENCRYPTION_KEY` into the application. Clients built with the same key material can decrypt the same synchronized database. A remote storage or synchronization service only needs the ciphertext and does not need to perform decryption.
+A tagged FarArc build injects `GLOBAL_STRING_ENCRYPTION_KEY` into the application. Clients built with the same key material can decrypt the same synchronized database. A remote storage or synchronization service only needs the ciphertext and does not need to perform decryption.
 
 The injected key is present in the compiled desktop application and can be recovered by a determined user or attacker who controls the client. The current implementation therefore prevents accidental plaintext disclosure and detects ciphertext modification, but it does not protect one user's database from another person who possesses the same published client and obtains the database.
 

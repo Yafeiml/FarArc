@@ -1,0 +1,105 @@
+﻿<UserControl x:Class="FarArc.View.Editor.Forms.SerialFormView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:controls="clr-namespace:FarArc.Controls"
+             xmlns:forms="clr-namespace:FarArc.View.Editor.Forms"
+             mc:Ignorable="d"
+             d:DataContext="{d:DesignInstance forms:SerialFormViewModel}"
+             d:DesignHeight="1450" d:DesignWidth="800">
+    <StackPanel>
+        <StackPanel>
+
+            <TextBlock Style="{StaticResource EditorGroupTextBlockTitle}" Text="{DynamicResource 'Connection'}"></TextBlock>
+
+            <Grid Style="{StaticResource EditorRowGrid}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="Serial port"></TextBlock>
+                    <Grid Style="{StaticResource EditorRowGridInput}" Width="100">
+                        <controls:AutoCompleteComboBox Text="{Binding New.SerialPort, UpdateSourceTrigger=PropertyChanged, ValidatesOnDataErrors=True, NotifyOnValidationError=True, ValidatesOnExceptions=True, ValidatesOnNotifyDataErrors=True}"
+                                                       Width="100"
+                                                       Tag="e.g. COM1"
+                                                       Selections="{Binding New.SerialPorts, Mode=OneTime}"/>
+                    </Grid>
+                    <TextBlock Style="{StaticResource EditorRowGridTitleFollowing}" Width="70" Text="Speed(bps)"></TextBlock>
+                    <Grid Style="{StaticResource EditorRowGridInput}">
+                        <controls:AutoCompleteComboBox Text="{Binding New.BitRate, UpdateSourceTrigger=PropertyChanged, ValidatesOnDataErrors=True, NotifyOnValidationError=True, ValidatesOnExceptions=True, ValidatesOnNotifyDataErrors=True}"
+                                                       MinWidth="100" HorizontalAlignment="Left"
+                                                       Tag="e.g. 9600"
+                                                       Selections="{Binding New.BitRates, Mode=OneTime}"/>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+
+        <StackPanel>
+            <TextBlock Style="{StaticResource EditorGroupTextBlockTitle}" Text="{DynamicResource server_editor_group_title_advantage}"></TextBlock>
+            <!--<Grid Style="{StaticResource EditorRowGrid}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="{DynamicResource server_editor_advantage_ssh_startup_auto_command}"></TextBlock>
+                    <Grid Style="{StaticResource EditorRowGridInput}">
+                        <TextBox Text="{Binding New.StartupAutoCommand, UpdateSourceTrigger=PropertyChanged}"
+                                                                  Tag="e.g. cd /home/user/Desktop/"></TextBox>
+                    </Grid>
+                </StackPanel>
+            </Grid>-->
+
+
+
+
+            <Grid Style="{StaticResource EditorRowGrid}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="Data bits"></TextBlock>
+                    <Grid Style="{StaticResource EditorRowGridInput}">
+                        <ComboBox SelectedItem="{Binding New.DataBits}" ItemsSource="{Binding New.DataBitsCollection}">
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+
+            <Grid Style="{StaticResource EditorRowGrid}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="Stop bits"></TextBlock>
+                    <Grid Style="{StaticResource EditorRowGridInput}">
+                        <ComboBox SelectedItem="{Binding New.StopBits}" ItemsSource="{Binding New.StopBitsCollection}">
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+
+            <Grid Style="{StaticResource EditorRowGrid}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="Parity"></TextBlock>
+                    <Grid Style="{StaticResource EditorRowGridInput}">
+                        <ComboBox SelectedItem="{Binding New.Parity}" ItemsSource="{Binding New.ParityCollection}">
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+
+            <Grid Style="{StaticResource EditorRowGrid}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="Flow control"></TextBlock>
+                    <Grid Style="{StaticResource EditorRowGridInput}">
+                        <ComboBox SelectedItem="{Binding New.FlowControl}" ItemsSource="{Binding New.FlowControlCollection}">
+                        </ComboBox>
+                    </Grid>
+                </StackPanel>
+            </Grid>
+
+            <Grid Style="{StaticResource EditorRowGrid}">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Style="{StaticResource EditorRowGridTitle}" Text="KiTTY Session"></TextBlock>
+                    <Grid Style="{StaticResource EditorRowGridInput}">
+                        <TextBox Text="{Binding New.ExternalKittySessionConfigPath, UpdateSourceTrigger=PropertyChanged}"
+                                 ToolTip="{DynamicResource server_editor_advantage_ssh_startup_auto_kitty_session_tip}"
+                                 Tag="{DynamicResource server_editor_advantage_ssh_startup_auto_kitty_session_tip}"
+                        ></TextBox>
+                    </Grid>
+                    <Button VerticalAlignment="Stretch" Style="{StaticResource ButtonPrimaryStyle}" Margin="5 0 0 0" Content="{DynamicResource Select}" Click="ButtonSelectSessionConfigFile_OnClick"></Button>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </StackPanel>
+</UserControl>

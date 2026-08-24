@@ -340,7 +340,7 @@ ASALocalRun/
 healthchecksdb
 /scripts/Test-Sandbox_Temp
 /*.DotSettings
-/Ui/Resources/Languages/glossary_backup.csv
-/Ui/Properties/launchSettings.json
-/Ui/Resources/PuTTY
-/Ui/Resources/Languages/glossary_translated_by_google
+/FarArc/Resources/Languages/glossary_backup.csv
+/FarArc/Properties/launchSettings.json
+/FarArc/Resources/PuTTY
+/FarArc/Resources/Languages/glossary_translated_by_google

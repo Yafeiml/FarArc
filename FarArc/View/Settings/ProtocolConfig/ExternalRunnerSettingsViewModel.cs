@@ -1,0 +1,287 @@
+﻿using System;
+using System.ComponentModel;
+using System.IO;
+using System.Windows;
+using Newtonsoft.Json;
+using FarArc.Model.Protocol;
+using FarArc.Model.ProtocolRunner;
+using FarArc.Service;
+using FarArc.Utils;
+using Shawn.Utils.Interface;
+using Shawn.Utils.Wpf;
+using Shawn.Utils.Wpf.Controls;
+using Shawn.Utils.Wpf.FileSystem;
+
+namespace FarArc.View.Settings.ProtocolConfig;
+
+public class ExternalRunnerSettingsViewModel : IDisposable
+{
+    private readonly ILanguageService _languageService;
+    private readonly PropertyChangedEventHandler? _propertyChangedHandler;
+    public ExternalRunner ExternalRunner { get; }
+
+    public ExternalRunnerSettingsViewModel(ExternalRunner externalRunner, ILanguageService languageService)
+    {
+        ExternalRunner = externalRunner;
+        _languageService = languageService;
+
+        _propertyChangedHandler = (sender, args) =>
+        {
+            if (args.PropertyName == nameof(Model.ProtocolRunner.ExternalRunner.ExePath))
+            {
+                AutoArguments();
+            }
+            IoC.Get<ProtocolConfigurationService>().Save();
+        };
+        ExternalRunner.PropertyChanged += _propertyChangedHandler;
+    }
+
+    public void Dispose()
+    {
+        // Unsubscribe from event to prevent memory leak
+        if (_propertyChangedHandler != null)
+        {
+            ExternalRunner.PropertyChanged -= _propertyChangedHandler;
+        }
+    }
+
+    private void AutoArguments()
+    {
+        if (string.IsNullOrEmpty(ExternalRunner.Arguments))
+        {
+            var path = ExternalRunner.ExePath;
+            var name = new FileInfo(path).Name.ToLower();
+            if (name.IndexOf("winscp", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (ExternalRunner.OwnerProtocolName == FTP.ProtocolName)
+                {
+                    ExternalRunner.Arguments = "ftp://%FARARC_USERNAME%:%FARARC_PASSWORD%@%FARARC_HOSTNAME%:%FARARC_PORT%";
+                }
+                else if (ExternalRunner.OwnerProtocolName == SFTP.ProtocolName)
+                {
+                    ExternalRunner.Arguments = "sftp://%FARARC_USERNAME%:%FARARC_PASSWORD%@%FARARC_HOSTNAME%:%FARARC_PORT%";
+                    if (ExternalRunner is ExternalRunnerForSSH ers)
+                        ers.ArgumentsForPrivateKey = @"sftp://%FARARC_USERNAME%@%FARARC_HOSTNAME%:%FARARC_PORT% /privatekey=%FARARC_PRIVATE_KEY_PATH%";
+                }
+                ExternalRunner.RunWithHosting = true;
+            }
+
+
+            if (string.IsNullOrEmpty(ExternalRunner.Arguments)
+                && name.IndexOf("filezilla", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                if (ExternalRunner.OwnerProtocolName == FTP.ProtocolName)
+                {
+                    ExternalRunner.Arguments = "ftp://%FARARC_USERNAME%:%FARARC_PASSWORD%@%FARARC_HOSTNAME%";
+                }
+                else if (ExternalRunner.OwnerProtocolName == SFTP.ProtocolName)
+                {
+                    ExternalRunner.Arguments = "sftp://%FARARC_USERNAME%:%FARARC_PASSWORD%@%FARARC_HOSTNAME%";
+                }
+                ExternalRunner.RunWithHosting = false;
+            }
+
+
+
+            if (string.IsNullOrEmpty(ExternalRunner.Arguments)
+                && ExternalRunner.OwnerProtocolName == SSH.ProtocolName
+                && name.IndexOf("kitty", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                ExternalRunner.Arguments = @"-ssh %FARARC_HOSTNAME% -P %FARARC_PORT% -l %FARARC_USERNAME% -pw %FARARC_PASSWORD% -%SSH_VERSION% -cmd ""%STARTUP_AUTO_COMMAND%""";
+                if (ExternalRunner is ExternalRunnerForSSH ers)
+                {
+                    // NOT SUPPORTED
+                    ers.ArgumentsForPrivateKey = @"";
+                }
+                ExternalRunner.RunWithHosting = true;
+            }
+
+            if (string.IsNullOrEmpty(ExternalRunner.Arguments)
+                && ExternalRunner.OwnerProtocolName == SSH.ProtocolName
+                && name.IndexOf("putty", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                ExternalRunner.Arguments = @"-ssh %FARARC_HOSTNAME% -P %FARARC_PORT% -l %FARARC_USERNAME% -pw %FARARC_PASSWORD% -%SSH_VERSION%";
+                if (ExternalRunner is ExternalRunnerForSSH ers)
+                {
+                    // NOT SUPPORTED
+                    ers.ArgumentsForPrivateKey = @"";
+                }
+                ExternalRunner.RunWithHosting = true;
+            }
+
+
+            if (string.IsNullOrEmpty(ExternalRunner.Arguments)
+                && (name.IndexOf("wt.exe", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name == "wt"
+                ))
+            {
+                if (ExternalRunner.OwnerProtocolName == SSH.ProtocolName)
+                {
+                    ExternalRunner.Arguments = @"-w 1 new-tab --title ""%FARARC_HOSTNAME%"" --suppressApplicationTitle plink -ssh %FARARC_HOSTNAME% -P %FARARC_PORT% -%SSH_VERSION% -C -X -no-antispoof -l %FARARC_USERNAME% -pw %FARARC_PASSWORD%";
+                    if (ExternalRunner is ExternalRunnerForSSH ers && string.IsNullOrEmpty(ers.ArgumentsForPrivateKey))
+                    {
+                        ers.ArgumentsForPrivateKey = @"-w 1 new-tab --title ""%FARARC_HOSTNAME%"" --suppressApplicationTitle plink -ssh %FARARC_HOSTNAME% -P %FARARC_PORT% -%SSH_VERSION% -C -X -no-antispoof -l %FARARC_USERNAME% -i %FARARC_PRIVATE_KEY_PATH%";
+                    }
+                }
+                ExternalRunner.RunWithHosting = false;
+            }
+
+
+
+
+            if (string.IsNullOrEmpty(ExternalRunner.Arguments)
+                && ExternalRunner.OwnerProtocolName == VNC.ProtocolName
+                && name.IndexOf("VpxClient", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                ExternalRunner.Arguments = @"-s %FARARC_HOSTNAME% -u %FARARC_USERNAME% -p %FARARC_PASSWORD%";
+                ExternalRunner.RunWithHosting = true;
+            }
+
+
+            if (string.IsNullOrEmpty(ExternalRunner.Arguments)
+                && ExternalRunner.OwnerProtocolName == VNC.ProtocolName
+                && name.IndexOf("tvnviewer", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                ExternalRunner.Arguments = @"%FARARC_HOSTNAME%::%FARARC_PORT% -password=%FARARC_PASSWORD% -scale=auto";
+                ExternalRunner.RunWithHosting = true;
+            }
+
+
+
+            if (string.IsNullOrEmpty(ExternalRunner.Arguments)
+                && ExternalRunner.OwnerProtocolName == VNC.ProtocolName
+                && (name.IndexOf("vncviewer", StringComparison.OrdinalIgnoreCase) >= 0
+                    || name.IndexOf("uvnc", StringComparison.OrdinalIgnoreCase) >= 0
+                ))
+            {
+                ExternalRunner.Arguments = @"%FARARC_HOSTNAME%:%FARARC_PORT% -password=%FARARC_PASSWORD%";
+                ExternalRunner.RunWithHosting = false;
+            }
+        }
+    }
+
+
+    private RelayCommand? _cmdSelectDbPath;
+    [JsonIgnore]
+    public RelayCommand CmdSelectExePath
+    {
+        get
+        {
+            return _cmdSelectDbPath ??= new RelayCommand((o) =>
+            {
+                string? initPath = null;
+                try
+                {
+                    initPath = new FileInfo(ExternalRunner.ExePath).DirectoryName;
+                }
+                catch
+                {
+                    // ignored
+                }
+
+                var path = SelectFileHelper.OpenFile(filter: "exe|*.exe", checkFileExists: true, initialDirectory: initPath);
+                if (path == null) return;
+                ExternalRunner.ExePath = path;
+            });
+        }
+    }
+
+
+    private RelayCommand? _cmdAddEnvironmentVariable;
+    public RelayCommand CmdAddEnvironmentVariable
+    {
+        get
+        {
+            return _cmdAddEnvironmentVariable ??= new RelayCommand((o) =>
+            {
+                ExternalRunner.EnvironmentVariables.Add(new ExternalRunner.ObservableKvp<string, string>("", ""));
+            });
+        }
+    }
+
+    private RelayCommand? _cmdDelEnvironmentVariable;
+    public RelayCommand CmdDelEnvironmentVariable
+    {
+        get
+        {
+            return _cmdDelEnvironmentVariable ??= new RelayCommand((o) =>
+            {
+                if (o is ExternalRunner.ObservableKvp<string, string> item
+                    && ExternalRunner.EnvironmentVariables.Contains(item)
+                    && ((item.Key == "" && item.Value == "")
+                        || true == MessageBoxHelper.Confirm(IoC.Translate("confirm_to_delete"), ownerViewModel: IoC.Get<MainWindowViewModel>()))
+                   )
+                {
+                    ExternalRunner.EnvironmentVariables.Remove(item);
+                    IoC.Get<ProtocolConfigurationService>().Save();
+                }
+            });
+        }
+    }
+
+
+    private RelayCommand? _cmdAddSpecialCharacter;
+    public RelayCommand CmdAddSpecialCharacter
+    {
+        get
+        {
+            return _cmdAddSpecialCharacter ??= new RelayCommand((o) =>
+            {
+                ExternalRunner.SpecialCharacters.Add(new ExternalRunner.ObservableKvp<string, string>("", ""));
+            });
+        }
+    }
+
+
+    private RelayCommand? _cmdDelSpecialCharacter;
+    public RelayCommand CmdDelSpecialCharacter
+    {
+        get
+        {
+            return _cmdDelSpecialCharacter ??= new RelayCommand((o) =>
+            {
+                if (o is ExternalRunner.ObservableKvp<string, string> item
+                    && ExternalRunner.SpecialCharacters.Contains(item)
+                    && ((item.Key == "" && item.Value == "")
+                        || true == MessageBoxHelper.Confirm(IoC.Translate("confirm_to_delete"), ownerViewModel: IoC.Get<MainWindowViewModel>()))
+                   )
+                {
+                    ExternalRunner.SpecialCharacters.Remove(item);
+                    IoC.Get<ProtocolConfigurationService>().Save();
+                }
+            });
+        }
+    }
+
+
+    private RelayCommand? _cmdCopyJsonAndShare;
+    public RelayCommand CmdCopyJsonAndShare
+    {
+        get
+        {
+            return _cmdCopyJsonAndShare ??= new RelayCommand((o) =>
+            {
+                try
+                {
+                    Clipboard.SetDataObject(
+                        $@"
+Runner for {ExternalRunner.OwnerProtocolName}
+
+```
+{JsonConvert.SerializeObject(ExternalRunner, Formatting.Indented)}
+```
+"
+                        );
+                    if (MessageBoxHelper.Confirm($"You runner({ExternalRunner.Name}) is copied to clipboard, do you want to share to Github?", "Share", ownerViewModel: IoC.Get<MainWindowViewModel>()))
+                    {
+                        HyperlinkHelper.OpenUriBySystem(Assert.ISSUES_URL + "/new");
+                    }
+                }
+                catch
+                {
+                    // ignored
+                }
+            });
+        }
+    }
+}

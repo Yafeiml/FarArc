@@ -18,7 +18,7 @@ assignees: ''
 
 ## 环境
 
-- 1Remote.NET10 Release 标签：
+- FarArc Release 标签：
 - Windows 版本：
 - 数据源：SQLite / MySQL / PostgreSQL
 - 连接协议：RDP / SSH / VNC / 其他
@@ -29,4 +29,4 @@ assignees: ''
 
 ## 补充信息
 
-如果问题涉及旧 1Remote 数据，请先说明；本项目不支持旧数据库无损升级。
+如果问题涉及上游 1Remote 或此前的 1Remote.NET10 开发数据，请先说明；FarArc 不支持这些数据库的无损升级。

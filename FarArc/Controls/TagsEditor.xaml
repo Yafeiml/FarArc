@@ -1,0 +1,79 @@
+﻿<UserControl x:Class="FarArc.Controls.TagsEditor"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:system="clr-namespace:System;assembly=mscorlib"
+             xmlns:self="clr-namespace:FarArc.Controls"
+             xmlns:attachProperty="clr-namespace:Shawn.Utils.WpfResources.Theme.AttachProperty;assembly=Shawn.Utils.WpfResources"
+             xmlns:view="clr-namespace:FarArc.View"
+             xmlns:serverList="clr-namespace:FarArc.View.ServerView"
+             mc:Ignorable="d" 
+             d:DataContext="{d:DesignInstance self:TagsEditor}"
+             d:DesignHeight="450" d:DesignWidth="800">
+    <UserControl.Resources>
+    </UserControl.Resources>
+    <Grid>
+        <StackPanel>
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition></RowDefinition>
+                    <RowDefinition></RowDefinition>
+                </Grid.RowDefinitions>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"></ColumnDefinition>
+                        <ColumnDefinition Width="*"></ColumnDefinition>
+                    </Grid.ColumnDefinitions>
+
+
+                    <Grid Grid.Column="1">
+                        <ItemsControl Name="ListViewTags" 
+                                      Focusable="False"
+                                      Background="{DynamicResource BackgroundBrush}" 
+                                      ItemsSource="{Binding Tags, RelativeSource={RelativeSource AncestorType=UserControl}}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <WrapPanel />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="system:String">
+                                    <Border VerticalAlignment="Center" Background="{DynamicResource AccentMidBrush}" CornerRadius="5" Margin="3 5">
+                                        <Grid>
+                                            <Label Content="{Binding}" Foreground="{DynamicResource AccentTextBrush}" Margin="0 0 15 0"></Label>
+                                            <Button Width="10" Height="10" Click="ButtonDel_OnClick" Tag="{Binding}"
+                                                    Style="{StaticResource ButtonBarAccentStyle}"
+                                                    HorizontalAlignment="Right"
+                                                    attachProperty:VisionElement.Opacity="0.5"
+                                                    attachProperty:VisionElement.OpacityAccent="0.9"
+                                                    Margin="0 0 5 0">
+                                                <Grid Height="10" Width="8">
+                                                    <Path Data="F1 M 47.910156 -44.000000 L 87.183594 -4.683594 L 83.316406 -0.816406 L 44.000000 -40.089844 L 4.683594 -0.816406 L 0.816406 -4.683594 L 40.089844 -44.000000 L 0.816406 -83.316406 L 4.683594 -87.183594 L 44.000000 -47.910156 L 83.316406 -87.183594 L 87.183594 -83.316406 Z "
+                                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Button}}"
+                                                          Fill="{Binding Foreground, RelativeSource={RelativeSource FindAncestor, AncestorType=Button}}"
+                                                          StrokeThickness="2" Stretch="Uniform" />
+                                                </Grid>
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Grid>
+                </Grid>
+
+                <Grid Grid.Row="1">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition></ColumnDefinition>
+                        <ColumnDefinition Width="20"></ColumnDefinition>
+                    </Grid.ColumnDefinitions>
+                    <self:AutoCompleteComboBox x:Name="TbNewTag" 
+                                               PreviewKeyDown="TbNewTag_OnPreviewKeyDown"
+                                               Margin="0 0 5 0"></self:AutoCompleteComboBox>
+                    <Button Grid.Column="1" Style="{StaticResource ButtonPrimaryStyle}" VerticalAlignment="Stretch" Click="Button_OnClick">+</Button>
+                </Grid>
+            </Grid>
+        </StackPanel>
+    </Grid>
+</UserControl>

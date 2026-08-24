@@ -1,0 +1,499 @@
+﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Linq;
+using System.Reflection;
+using System.Windows.Media.Imaging;
+using FarArc.Model.ProtocolRunner;
+using FarArc.Model.ProtocolRunner.Default;
+using FarArc.Service;
+using FarArc.Service.DataSource.Model;
+using FarArc.Utils;
+using Newtonsoft.Json;
+using Shawn.Utils;
+using Shawn.Utils.Wpf;
+using Shawn.Utils.Wpf.Image;
+
+namespace FarArc.Model.Protocol.Base
+{
+    public abstract class ProtocolBase : NotifyPropertyChangedBase, IDataErrorInfo
+    {
+        [JsonIgnore] public string ServerEditorDifferentOptions => IoC.Translate("server_editor_different_options").Replace(" ", "-");
+        [JsonIgnore] public static string ServerEditorStaticDifferentOptions => IoC.Translate("server_editor_different_options").Replace(" ", "-");
+
+        protected ProtocolBase(string protocol, string classVersion, string protocolDisplayName)
+        {
+            Protocol = protocol;
+            ClassVersion = classVersion;
+            _protocolDisplayName = protocolDisplayName;
+        }
+
+        public abstract bool IsOnlyOneInstance();
+
+        private string _id = string.Empty;
+
+        /// <summary>
+        /// ULID since FarArc
+        /// </summary>
+        [JsonIgnore]
+        public string Id
+        {
+            get
+            {
+                if (string.IsNullOrEmpty(_id))
+                    _id = "TMP_SESSION_" + new DateTimeOffset(DateTime.Now).ToUnixTimeMilliseconds();
+                return _id;
+            }
+            set => SetAndNotifyIfChanged(ref _id, value);
+        }
+
+        public static bool IsTmpSession(string id)
+        {
+            return id.StartsWith("TMP_SESSION_") || string.IsNullOrEmpty(id);
+        }
+
+        public bool IsTmpSession()
+        {
+            return IsTmpSession(Id);
+        }
+
+        /// <summary>
+        /// protocol name
+        /// </summary>
+        public string Protocol { get; }
+
+        public string ClassVersion { get; }
+
+        [JsonIgnore]
+        public string ProtocolDisplayName => GetProtocolDisplayName();
+
+        private readonly string _protocolDisplayName;
+        public virtual string GetProtocolDisplayName()
+        {
+            return _protocolDisplayName;
+        }
+
+        private string _displayName = "";
+        public string DisplayName
+        {
+            get => _displayName;
+            set => SetAndNotifyIfChanged(ref _displayName, value);
+        }
+
+        /// <summary>
+        /// 会话的ID
+        /// </summary>
+        [JsonIgnore]
+        public string SessionId { get; private set; } = "";
+
+        public void GenerateSessionId()
+        {
+            SessionId = $"{Assert.APP_NAME}_{Protocol}_{Id}_{DateTimeOffset.Now.ToUnixTimeSeconds()}";
+        }
+
+        [JsonIgnore]
+        public string SubTitle => GetSubTitle();
+
+
+        private bool? _alwaysOpenInNewTabWindow = false;
+        public bool? AlwaysOpenInNewTabWindow
+        {
+            get => _alwaysOpenInNewTabWindow;
+            set => SetAndNotifyIfChanged(ref _alwaysOpenInNewTabWindow, value);
+        }
+
+        // ReSharper disable once ArrangeObjectCreationWhenTypeEvident
+        private List<string> _tags = new List<string>();
+        public List<string> Tags
+        {
+            get
+            {
+                _tags = _tags.Distinct().OrderBy(x => x).ToList();
+                return _tags;
+            }
+            set
+            {
+                // bulk edit 时可能会传入 null
+                // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+                if (value == null)
+                    SetAndNotifyIfChanged(ref _tags, new List<string>());
+                else
+                    SetAndNotifyIfChanged(ref _tags, value.Distinct().Select(x => x.Trim().Replace(" ", "")).OrderBy(x => x).ToList());
+            }
+        }
+
+        /// <summary>
+        /// Tree hierarchy nodes for the server. 
+        /// Stores the path from root to this server, e.g., for "A->B->C->Server1", TreeNodes=[A,B,C]
+        /// </summary>
+        // ReSharper disable once ArrangeObjectCreationWhenTypeEvident
+        private List<string> _treeNodes = new List<string>();
+        public List<string> TreeNodes
+        {
+            get => _treeNodes;
+            set
+            {
+                // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+                if (value == null)
+                    SetAndNotifyIfChanged(ref _treeNodes, new List<string>());
+                else
+                    SetAndNotifyIfChanged(ref _treeNodes, value.Select(x => x.Trim()).Where(x => !string.IsNullOrEmpty(x)).ToList());
+            }
+        }
+
+        private string _iconBase64 = "";
+        public string IconBase64
+        {
+            get => _iconBase64;
+            set
+            {
+                _iconCache = null;
+                SetAndNotifyIfChanged(ref _iconBase64, value);
+                RaisePropertyChanged(nameof(IconImg));
+            }
+        }
+
+        private BitmapSource? _iconCache = null;
+        [JsonIgnore]
+        public BitmapSource? IconImg
+        {
+            get
+            {
+                if (_iconCache != null)
+                    return _iconCache;
+                try
+                {
+                    _iconCache = Convert.FromBase64String(_iconBase64).BitmapFromBytes().ToBitmapSource();
+                }
+                catch (Exception)
+                {
+                    return null;
+                }
+                return _iconCache;
+            }
+        }
+
+
+
+        private string _colorHex = "#00000000";
+        public string ColorHex
+        {
+            get => _colorHex;
+            set => SetAndNotifyIfChanged(ref _colorHex, value);
+        }
+
+        private string _commandBeforeConnected = "";
+        public string CommandBeforeConnected
+        {
+            get => _commandBeforeConnected;
+            set => SetAndNotifyIfChanged(ref _commandBeforeConnected, value);
+        }
+
+        private bool _hideCommandBeforeConnectedWindow = false;
+        public bool HideCommandBeforeConnectedWindow
+        {
+            get => _hideCommandBeforeConnectedWindow;
+            set => SetAndNotifyIfChanged(ref _hideCommandBeforeConnectedWindow, value);
+        }
+
+        private string _commandAfterDisconnected = "";
+        public string CommandAfterDisconnected
+        {
+            get => _commandAfterDisconnected;
+            set => SetAndNotifyIfChanged(ref _commandAfterDisconnected, value);
+        }
+
+        private string _note = "";
+        public string Note
+        {
+            get => _note;
+            set => SetAndNotifyIfChanged(ref _note, value);
+        }
+
+        private string _selectedRunnerName = "";
+        public string SelectedRunnerName
+        {
+            get => _selectedRunnerName == "Follow the global settings" ? "" : _selectedRunnerName;
+            set
+            {
+                var v = value == "Follow the global settings" ? "" : value;
+                if (SetAndNotifyIfChanged(ref _selectedRunnerName, v))
+                {
+                    var runner = RunnerHelper.GetRunner(IoC.Get<ProtocolConfigurationService>(), this, this.Protocol);
+                    RaisePropertyChanged(nameof(SelectedRunnerIsInternalRunner));
+                }
+            }
+        }
+
+        [JsonIgnore] 
+        public bool SelectedRunnerIsInternalRunner => RunnerHelper.GetRunner(IoC.Get<ProtocolConfigurationService>(), this, this.Protocol) is InternalDefaultRunner;
+
+        /// <summary>
+        /// copy all value type fields
+        /// </summary>
+        public bool Update(ProtocolBase copyFromObj, Type? levelType = null)
+        {
+            var baseType = levelType ?? this.GetType();
+            var myType = this.GetType();
+            var yourType = copyFromObj.GetType();
+            while (myType != null && myType != baseType)
+            {
+                myType = myType.BaseType;
+            }
+
+            while (yourType != null && yourType != baseType)
+            {
+                yourType = yourType.BaseType;
+            }
+
+            if (myType != null && myType == yourType)
+            {
+                while (yourType != null)
+                {
+                    var fields = yourType.GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+                    foreach (var fi in fields)
+                    {
+                        if (!fi.IsInitOnly)
+                            fi.SetValue(this, fi.GetValue(copyFromObj));
+                    }
+
+                    var properties = yourType.GetProperties(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+                    foreach (var property in properties)
+                    {
+                        if (property.CanWrite && property.SetMethod != null)
+                        {
+                            // update properties without notify
+                            property.SetValue(this, property.GetValue(copyFromObj));
+                            // then raise notify
+                            base.RaisePropertyChanged(property.Name);
+                        }
+                    }
+
+                    // update base class
+                    yourType = yourType.BaseType;
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
+        public virtual string ToJsonString()
+        {
+            return JsonConvert.SerializeObject(this);
+            //return JsonConvert.SerializeObject(this, Formatting.Indented);
+        }
+
+        /// <summary>
+        /// json string to instance
+        /// </summary>
+        /// <param name="jsonString"></param>
+        /// <returns></returns>
+        public abstract ProtocolBase? CreateFromJsonString(string jsonString);
+
+        /// <summary>
+        /// subtitle of every server, different form each protocol
+        /// </summary>
+        /// <returns></returns>
+        protected abstract string GetSubTitle();
+
+        /// <summary>
+        /// determine the display order to show items
+        /// </summary>
+        /// <returns></returns>
+        public abstract double GetListOrder();
+
+        /// <summary>
+        /// cation: it is a shallow
+        /// </summary>
+        public virtual ProtocolBase Clone()
+        {
+            //{
+            //    var json = ToJsonString();
+            //    var jsonClone = ItemCreateHelper.CreateFromJsonString(json);
+            //    if (jsonClone != null)
+            //    {
+            //        jsonClone.Id = this.Id;
+            //        jsonClone.DataSourceName = this.DataSourceName;
+            //        return jsonClone;
+            //    }
+            //}
+
+
+            var clone = (ProtocolBase)this.MemberwiseClone();
+            Debug.Assert(clone != null);
+            clone!.Tags = new List<string>(this.Tags);
+            clone.TreeNodes = new List<string>(this.TreeNodes);
+            if (this is ProtocolBaseWithAddressPortUserPwd p
+                && clone is ProtocolBaseWithAddressPortUserPwd c)
+            {
+                c.AlternateCredentials = new(p.AlternateCredentials.Select(x => x.CloneMe()));
+            }
+            clone.DataSource = DataSource;
+            return clone;
+        }
+
+        private Dictionary<string, string> GetEnvironmentVariablesForScript()
+        {
+            var evs = new Dictionary<string, string>
+            {
+                { "SESSION_ID", this.GetHashCode().ToString() },
+                { "SERVER_ID", this.Id },
+                { "SERVER_NAME", this.DisplayName },
+                { "SERVER_HOST", "" },
+                { "SERVER_TAGS", string.Join(",", this.Tags.ToArray()) }
+            };
+            if (this is ProtocolBaseWithAddressPort p)
+                evs["SERVER_HOST"] = $"{p.Address}:{p.Port}";
+            return evs;
+        }
+
+        public int RunScriptBeforeConnect(bool isTestRun = false)
+        {
+            int exitCode = 0;
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(CommandBeforeConnected))
+                {
+                    var tuple = WinCmdRunner.DisassembleOneLineScriptCmd(CommandBeforeConnected);
+
+                    if (isTestRun)
+                    {
+                        if (string.IsNullOrEmpty(tuple.Item2) == false)
+                            MessageBoxHelper.Info($"We will run: '{tuple.Item1}' with parameters '{tuple.Item2}'");
+                        else
+                            MessageBoxHelper.Info($"We will run: '{CommandBeforeConnected}'");
+                    }
+
+                    exitCode = WinCmdRunner.RunFile(tuple.Item1, arguments: tuple.Item2, isAsync: false,
+                        isHideWindow: HideCommandBeforeConnectedWindow && isTestRun != true,
+                        workingDirectory: tuple.Item3,
+                        useShellExcute: tuple.Item4,
+                        envVariables: GetEnvironmentVariablesForScript());
+
+                    if (isTestRun)
+                    {
+                        MessageBoxHelper.Info($"The exit code of the script = {exitCode}.\r\nOnce the code != 0, we will terminate your connection request.");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                exitCode = 1;
+                SimpleLogHelper.Error(e);
+                MessageBoxHelper.ErrorAlert("We encountered a problem while running the script: " + e.Message, IoC.Translate("Script before connect"));
+            }
+            return exitCode;
+        }
+
+        public void RunScriptAfterDisconnected(bool isTestRun = false)
+        {
+            try
+            {
+                if (!string.IsNullOrWhiteSpace(CommandAfterDisconnected))
+                {
+                    var tuple = WinCmdRunner.DisassembleOneLineScriptCmd(CommandAfterDisconnected);
+
+                    if (isTestRun)
+                    {
+                        if (string.IsNullOrEmpty(tuple.Item2) == false)
+                            MessageBoxHelper.Info($"We will run: '{tuple.Item1}' with parameters '{tuple.Item2}'");
+                        else
+                            MessageBoxHelper.Info($"We will run: '{CommandBeforeConnected}'");
+                    }
+
+                    var exitCode = WinCmdRunner.RunFile(tuple.Item1, arguments: tuple.Item2, isAsync: true,
+                        isHideWindow: isTestRun != true,
+                        workingDirectory: tuple.Item3,
+                        useShellExcute: tuple.Item4,
+                        envVariables: GetEnvironmentVariablesForScript());
+
+                    if (isTestRun)
+                    {
+                        MessageBoxHelper.Info($"The exit code of the script = {exitCode}.");
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                SimpleLogHelper.Error(e);
+                MessageBoxHelper.ErrorAlert("We encountered a problem while running the script: " + e.Message, IoC.Translate("Script after disconnected"));
+            }
+        }
+        
+        public static List<ProtocolBase> GetAllSubInstance()
+        {
+            var assembly = typeof(ProtocolBase).Assembly;
+            var types = assembly.GetTypes();
+            // reflect remote protocols
+            var protocolList = types.Where(item => item.IsSubclassOf(typeof(ProtocolBase)) && !item.IsAbstract)
+                .Select(type => (ProtocolBase)Activator.CreateInstance(type)!)
+                .Where(x => string.IsNullOrEmpty(x.Protocol) == false)
+                .OrderBy(x => x.GetListOrder()).ToList();
+            return protocolList;
+        }
+
+
+        public virtual bool IsThisTimeConnWithFullScreen()
+        {
+            return false;
+        }
+
+        [JsonIgnore]
+        public DataSourceBase? DataSource { get; set; }
+
+        /// <summary>
+        /// build the id for host, ConnectionId internal id while session id is the outer id
+        /// </summary>
+        /// <returns></returns>
+        public virtual string BuildConnectionId()
+        {
+            return Id;
+        }
+
+        #region IDataErrorInfo
+        [JsonIgnore] public string Error => "";
+
+        [JsonIgnore]
+        public virtual string this[string columnName]
+        {
+            get
+            {
+                switch (columnName)
+                {
+                    case nameof(DisplayName):
+                        {
+                            if (string.IsNullOrWhiteSpace(DisplayName))
+                            {
+                                return IoC.Translate(LanguageService.CAN_NOT_BE_EMPTY);
+                            }
+                            break;
+                        }
+                }
+                return "";
+            }
+        }
+        #endregion
+
+        [JsonIgnore]
+        public string HelpUrl => GetHelpUrl();
+        public virtual string GetHelpUrl()
+        {
+            return "";
+        }
+
+        /// <summary>
+        /// Migrate tags to TreeNodes for existing servers that don't have TreeNodes set.
+        /// This method copies the Tags to TreeNodes for backwards compatibility.
+        /// </summary>
+        public void MigrateTagsToTreeNodes()
+        {
+            if (Tags.Count > 0 && TreeNodes.Count == 0)
+            {
+                TreeNodes = new List<string>(Tags);
+            }
+        }
+    }
+}

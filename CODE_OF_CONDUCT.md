@@ -56,7 +56,7 @@ further defined and clarified by project maintainers.
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
 reported privately to the maintainers through the security/contact method documented in
-this repository, or publicly through https://github.com/Yafeiml/1Remote/issues when
+this repository, or publicly through https://github.com/Yafeiml/FarArc/issues when
 the report contains no sensitive information. All
 complaints will be reviewed and investigated and will result in a response that
 is deemed necessary and appropriate to the circumstances. The project team is
