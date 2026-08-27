@@ -231,10 +231,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           $notes = @(
-            "FarArc $env:PACKAGE_SUFFIX 是一次品牌视觉小版本更新。",
+            "FarArc $env:PACKAGE_SUFFIX 是一次应用图标优化更新。",
             "",
-            "- 全面替换应用 Logo，包括可执行文件、任务栏、系统托盘及应用内页面图标。",
-            "- 可从 FarArc 0.1.0 直接升级；升级前请退出应用并备份现有数据。",
+            "- 更新为蓝色渐变背景与白色 FA 字标。",
+            "- 同步替换可执行文件、任务栏、系统托盘及应用内全部尺寸图标。",
+            "- 可从 FarArc 0.1.0 或 0.1.1 直接升级；升级前请退出应用并备份现有数据。",
             "- 仅支持 .NET 10 / Windows x64。",
             "- 推荐下载 self-contained 包，无需预装 .NET Desktop Runtime。",
             "- 与上游 1Remote 及此前的 1Remote.NET10 开发构建不兼容；请使用全新程序目录和全新数据库。",

@@ -12,18 +12,18 @@
 <p align="center">
   <a href="https://github.com/Yafeiml/FarArc/actions/workflows/fararc-release.yml"><img alt="CI" src="https://github.com/Yafeiml/FarArc/actions/workflows/fararc-release.yml/badge.svg" /></a>
   <a href="LICENSE"><img alt="License: GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue.svg" /></a>
-  <img alt="Version 0.1.1" src="https://img.shields.io/badge/version-0.1.1-00a4ef.svg" />
+  <img alt="Version 0.1.2" src="https://img.shields.io/badge/version-0.1.2-00a4ef.svg" />
 </p>
 
 `FarArc` 是面向 Windows 的统一远程连接工作区。它在一个桌面客户端中集中管理 RDP、SSH、VNC、Telnet、FTP、SFTP、RemoteApp、串口和自定义外部程序连接。
 
-当前版本为 **0.1.1**，仅面向 **.NET 10 / Windows x64**。
+当前版本为 **0.1.2**，仅面向 **.NET 10 / Windows x64**。
 
 > [!IMPORTANT]
 > FarArc 是基于开源项目 [1Remote](https://github.com/1Remote/1Remote) 修改的独立派生项目，不是 1Remote 的官方版本，也不受其维护者认可、赞助或背书。项目保留 GPLv3、版权和来源说明；详细边界见 [FORK-NOTICE.md](FORK-NOTICE.md)。
 
 > [!CAUTION]
-> **FarArc 0.1.1 不能从上游 1Remote 或此前的 1Remote.NET10 开发构建原地升级。** 请使用全新程序目录和全新数据库。不要让这些程序读写同一数据库，也不要在没有完整离线备份的情况下尝试人工迁移。目前没有自动凭据转换工具。
+> **FarArc 0.1.2 不能从上游 1Remote 或此前的 1Remote.NET10 开发构建原地升级。** 请使用全新程序目录和全新数据库。不要让这些程序读写同一数据库，也不要在没有完整离线备份的情况下尝试人工迁移。目前没有自动凭据转换工具。
 
 ## 功能
 
@@ -39,9 +39,9 @@
 
 请从 [GitHub Releases](https://github.com/Yafeiml/FarArc/releases) 下载 Windows x64 压缩包：
 
-- `FarArc-0.1.1-win-x64-net10-self-contained.zip`：推荐，包含 .NET 10 运行时；
-- `FarArc-0.1.1-win-x64-net10.zip`：体积较小，需要预先安装 .NET 10 Desktop Runtime x64；
-- `FarArc-0.1.1-source.zip`：该版本对应的完整源码。
+- `FarArc-0.1.2-win-x64-net10-self-contained.zip`：推荐，包含 .NET 10 运行时；
+- `FarArc-0.1.2-win-x64-net10.zip`：体积较小，需要预先安装 .NET 10 Desktop Runtime x64；
+- `FarArc-0.1.2-source.zip`：该版本对应的完整源码。
 
 将程序解压到一个全新目录，运行 `FarArc.exe`。当前没有安装器、Microsoft Store 包或其他 CPU 架构的发布包。
 
