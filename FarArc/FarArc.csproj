@@ -44,10 +44,10 @@
     </PropertyGroup>
 
     <PropertyGroup>
-        <AssemblyVersion>0.1.2.0</AssemblyVersion>
+        <AssemblyVersion>0.1.3.0</AssemblyVersion>
         <FileVersion>$(AssemblyVersion)</FileVersion>
-        <Version>0.1.2</Version>
-        <InformationalVersion>0.1.2</InformationalVersion>
+        <Version>0.1.3</Version>
+        <InformationalVersion>0.1.3</InformationalVersion>
         <Authors>Yafeiml</Authors>
         <Product>FarArc</Product>
         <Description>FarArc is a unified Windows remote connection workspace for RDP, SSH, VNC, SFTP, and more.</Description>

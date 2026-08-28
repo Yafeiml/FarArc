@@ -250,10 +250,14 @@ namespace FarArc.View.Host
 
         protected virtual void TabablzControl_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (Vm?.SelectedItem?.Content != null)
+            // The first item is auto-selected by TabablzControl before the
+            // two-way SelectedItem binding has updated the view model. Read
+            // the control first so the initial session gets its host icon too.
+            var selectedItem = TabablzControl.SelectedItem as TabItemViewModel ?? Vm?.SelectedItem;
+            if (selectedItem?.Content != null)
             {
                 this.Icon = IoC.Get<ConfigurationService>().General.ShowSessionIconInSessionWindow ?
-                    Vm.SelectedItem.Content.ProtocolServer.IconImg : null;
+                    selectedItem.Content.ProtocolServer.IconImg : null;
             }
         }
 

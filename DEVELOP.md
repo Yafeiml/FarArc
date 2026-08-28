@@ -13,7 +13,7 @@ FarArc 活动代码统一面向 .NET 10，并只在 Windows x64 上发布。
 | 应用数据和默认数据库名 | `FarArc` |
 | 外部运行器宏前缀 | `FARARC_` |
 | 凭据密文格式 | `fararcsec:1` |
-| 当前版本 | `0.1.2` |
+| 当前版本 | `0.1.3` |
 
 `1Remote` 只能出现在来源、许可证、历史兼容性和迁移警告语境中。`PRemoteM` 仅作为明确的历史数据库导入功能名称保留。
 
@@ -61,12 +61,12 @@ Release 构建从 `C:\FarArc_Secret\EncryptionKey.txt` 读取加密密钥。该�
 
 ## 版本
 
-应用语义版本的唯一来源是 `FarArc/AppVersion.cs`。`FarArc.csproj` 中的产品版本、程序集版本和文件版本必须与其同步；三段语义版本 `0.1.2` 对应四段程序集/文件版本 `0.1.2.0`。
+应用语义版本的唯一来源是 `FarArc/AppVersion.cs`。`FarArc.csproj` 中的产品版本、程序集版本和文件版本必须与其同步；三段语义版本 `0.1.3` 对应四段程序集/文件版本 `0.1.3.0`。
 
 当前版本：
 
 ```text
-0.1.2
+0.1.3
 ```
 
 ## GitHub Actions
@@ -75,7 +75,7 @@ Release 构建从 `C:\FarArc_Secret\EncryptionKey.txt` 读取加密密钥。该�
 
 - Pull Request 和 `main` 分支提交执行构建、测试与依赖漏洞审计；
 - 发布只由 `v*` 标签触发；
-- 标签必须与 `scripts/Get-Version.ps1` 输出完全一致，例如 `v0.1.2`；
+- 标签必须与 `scripts/Get-Version.ps1` 输出完全一致，例如 `v0.1.3`；
 - Release 附带依赖运行时、自包含和完整对应源码三个 ZIP；
 - 仓库必须配置 `GLOBAL_STRING_ENCRYPTION_KEY` Actions Secret。
 
