@@ -19,6 +19,13 @@ namespace FarArc.View
         public MainWindowViewModel Vm { get; }
         private readonly ConfigurationService _configurationService;
 
+        protected override bool PreserveTaskbarVisibilityDuringChromeUpdates =>
+            App.ExitingFlag == false
+            && IsClosing == false
+            && ShowInTaskbar
+            && Visibility == System.Windows.Visibility.Visible
+            && IsVisible;
+
 
         public MainWindowView(MainWindowViewModel vm, LocalityService localityService, ConfigurationService configurationService)
         {
@@ -53,6 +60,16 @@ namespace FarArc.View
             this.StateChanged += (sender, args) =>
             {
                 localityService.MainWindowState = this.WindowState;
+            };
+
+            this.Activated += (_, _) =>
+            {
+                if (App.ExitingFlag == false && IsClosing == false && IsVisible)
+                {
+                    // Complete the same taskbar recovery used by session windows:
+                    // WPF may drop ShowInTaskbar after a focus/minimize cycle.
+                    ShowInTaskbar = true;
+                }
             };
 
             WinTitleBar.PreviewMouseDown += WinTitleBar_OnPreviewMouseDown;

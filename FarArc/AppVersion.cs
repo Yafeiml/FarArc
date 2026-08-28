@@ -6,7 +6,7 @@ namespace FarArc
     {
         public const uint Major = 0;
         public const uint Minor = 1;
-        public const uint Patch = 3;
+        public const uint Patch = 4;
         public const uint Build = 0;
         public const string BuildDate = "";
         public const string PreRelease = ""; // e.g. "alpha" "beta.2"
